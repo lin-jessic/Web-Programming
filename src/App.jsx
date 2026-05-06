@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import ThreeDeskPostcard from "./ThreeDeskPostcard.jsx";
+import ThreePhotoBoothStudio from "./ThreePhotoBoothStudio.jsx";
 import "./App.css";
 
 const STORAGE_KEYS = {
@@ -2033,7 +2034,7 @@ function App() {
       )}
 
       {activeTab === "photobooth" && (
-        <PhotoBoothStudio onSaveArtwork={saveArtwork} />
+        <ThreePhotoBoothStudio onSaveArtwork={saveArtwork} />
       )}
 
       {activeTab === "storage" && (

@@ -2027,3 +2027,90 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== 3D Photo Booth Studio ===== */
+
+.three-booth-preview {
+  justify-content: flex-start;
+}
+
+.three-booth-title {
+  width: 100%;
+  margin-bottom: 18px;
+}
+
+.three-booth-title h3 {
+  margin: 0;
+  color: #6a3d24;
+  font-size: 28px;
+}
+
+.three-booth-title p {
+  margin: 6px 0 0 0;
+  color: #8a674d;
+  line-height: 1.5;
+}
+
+.three-booth-canvas {
+  width: 100%;
+  height: 590px;
+  border-radius: 28px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(255, 242, 218, 0.9), transparent 35%),
+    linear-gradient(135deg, #edd1b6, #cfa984);
+  border: 1px solid rgba(120, 80, 50, 0.16);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 24px 48px rgba(70, 40, 20, 0.14);
+}
+
+.three-booth-canvas canvas {
+  cursor: grab;
+}
+
+.three-booth-canvas:active canvas {
+  cursor: grabbing;
+}
+
+.three-booth-quick-actions {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.three-booth-quick-actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 11px 16px;
+  background: #8b5734;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(70, 40, 20, 0.16);
+  transition: 0.2s;
+}
+
+.three-booth-quick-actions button:hover {
+  transform: translateY(-2px);
+  background: #6f4123;
+}
+
+.three-booth-quick-actions button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.booth-result-panel {
+  margin-top: 22px;
+}
+
+@media (max-width: 760px) {
+  .three-booth-canvas {
+    height: 460px;
+  }
+}
