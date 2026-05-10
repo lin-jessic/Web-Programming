@@ -1294,6 +1294,8 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
   const [postcards, setPostcards] = useState([]);
   const [photoBooths, setPhotoBooths] = useState([]);
   const [filter, setFilter] = useState("all");
+  const [sharePreviewItem, setSharePreviewItem] = useState(null);
+  const [sharePreviewCaption, setSharePreviewCaption] = useState("");
 
   const loadStorage = async () => {
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
@@ -1448,7 +1450,14 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
                     Download
                   </button>
 
-                  <button onClick={() => onShareToWall(item)}>
+                  <button onClick={() => {
+                    setSharePreviewItem(item);
+                    setSharePreviewCaption(
+                      item.type === "postcard"
+                        ? `Shared postcard: ${item.title}`
+                        : `Shared photo strip: ${item.title}`
+                    );
+                  }}>
                     Share to Wall
                   </button>
 
@@ -1464,11 +1473,111 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
           ))}
         </div>
       )}
+      {sharePreviewItem && (
+        <div
+          className="output-preview-overlay"
+          onClick={() => setSharePreviewItem(null)}
+        >
+          <div
+            className="output-preview-modal"
+            style={{ maxWidth: 520 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="output-preview-header">
+              <div>
+                <h3>📮 分享到社交牆</h3>
+                <p>預覽並編輯發布文字後再分享</p>
+              </div>
+              <button
+                className="output-close-btn"
+                onClick={() => setSharePreviewItem(null)}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* 發布者資訊 */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              marginBottom: 16, padding: "10px 14px",
+              background: "#f4e5d6", borderRadius: 14
+            }}>
+              <span style={{ fontSize: 28 }}>{currentUser.avatar}</span>
+              <div>
+                <div style={{ fontWeight: "bold", color: "#5b3924" }}>
+                  {currentUser.nickname}
+                </div>
+                <div style={{ fontSize: 12, color: "#96755c" }}>
+                  {currentUser.gmail}
+                </div>
+              </div>
+            </div>
+
+            {/* 圖片預覽 */}
+            <div style={{
+              borderRadius: 18, overflow: "hidden",
+              marginBottom: 16, background: "#f4e5d6",
+              maxHeight: 300, display: "flex",
+              alignItems: "center", justifyContent: "center"
+            }}>
+              <img
+                src={sharePreviewItem.image}
+                alt={sharePreviewItem.title}
+                style={{ width: "100%", maxHeight: 300, objectFit: "contain" }}
+              />
+            </div>
+
+            {/* 作品資訊 */}
+            <div style={{
+              padding: "10px 14px", borderRadius: 14,
+              background: "#fff7f0", border: "1px solid #e7cfb8",
+              marginBottom: 16
+            }}>
+              <div style={{ fontWeight: "bold", color: "#5b3924", fontSize: 14 }}>
+                {sharePreviewItem.type === "postcard" ? "📬 Postcard" : "📷 Photo Booth"}
+                {" · "}{sharePreviewItem.title}
+              </div>
+              <div style={{ fontSize: 12, color: "#96755c", marginTop: 4 }}>
+                {sharePreviewItem.createdAt}
+              </div>
+            </div>
+
+            {/* 編輯發布文字 */}
+            <div className="tool-group">
+              <label>發布文字</label>
+              <textarea
+                value={sharePreviewCaption}
+                onChange={(e) => setSharePreviewCaption(e.target.value)}
+                placeholder="寫點什麼吧..."
+                style={{ minHeight: 80 }}
+              />
+            </div>
+
+            <div className="output-preview-actions">
+              <button onClick={async () => {
+                await onShareToWall({
+                  ...sharePreviewItem,
+                  caption: sharePreviewCaption
+                });
+                setSharePreviewItem(null);
+              }}>
+                🚀 發布到社交牆
+              </button>
+              <button
+                onClick={() => setSharePreviewItem(null)}
+                style={{ background: "#efe0d1", color: "#5b3924" }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function WallPostCard({ item, index, currentUser, onLike, onComment }) {
+function WallPostCard({ item, index, currentUser, onLike, onComment, onOpen }) {
   const [commentInput, setCommentInput] = useState("");
 
   const likes = item.likes || [];
@@ -1513,7 +1622,17 @@ function WallPostCard({ item, index, currentUser, onLike, onComment }) {
             {liked ? "♥ Liked" : "♡ Like"} · {likes.length}
           </button>
 
-          <span>💬 {comments.length}</span>
+          <button
+            onClick={onOpen}
+            style={{
+              border: "none", background: "none",
+              cursor: "pointer", fontWeight: "bold",
+              color: "#8a674d", padding: "4px 8px",
+              borderRadius: 999
+            }}
+          >
+            💬 {comments.length} 則留言
+          </button>
         </div>
 
         <div className="wall-comment-box">
@@ -1557,6 +1676,10 @@ function CommunityWallPage({ refreshKey, currentUser }) {
   const [selectedWorkId, setSelectedWorkId] = useState("");
 
   const [commentText, setCommentText] = useState("");
+
+  const [shareModalItem, setShareModalItem] = useState(null); // 正在分享的作品
+  const [shareCaption, setShareCaption] = useState("");
+  const [openPostId, setOpenPostId] = useState(null); // 點開的貼文 id
 
   const loadWall = async () => {
     setGallery(await attachImages(getList(STORAGE_KEYS.gallery)));
@@ -1620,15 +1743,15 @@ function CommunityWallPage({ refreshKey, currentUser }) {
     }
   };
 
-  const postToWall = async () => {
-    if (!wallImage) {
+  const postToWall = async (image, caption) => {
+    if (!image) {
       alert("請先上傳圖片，或從 My Storage 選擇一個作品！");
       return;
     }
 
     const id = makeId();
     const imageKey = `wall_${id}`;
-    await saveImageToDB(imageKey, wallImage);
+    await saveImageToDB(imageKey, image);
 
     const item = {
       id,
@@ -1637,9 +1760,9 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       name: currentUser.nickname,
       gmail: currentUser.gmail,
       avatar: currentUser.avatar,
-      caption: wallCaption || "Shared a new work.",
+      caption: caption || "Shared a new work.",
       createdAt: new Date().toLocaleString(),
-      image: wallImage,
+      image,
       likes: [],
       comments: []
     };
@@ -1652,6 +1775,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       setWallCaption("");
       setWallImage(null);
       setSelectedWorkId("");
+      setShareModalItem(null);
     }
   };
 
@@ -1777,7 +1901,14 @@ function CommunityWallPage({ refreshKey, currentUser }) {
             />
           </label>
 
-          <button onClick={postToWall}>Post to Wall</button>
+          <button onClick={() => {
+            if (!wallImage) {
+              alert("請先上傳圖片，或從 My Storage 選擇一個作品！");
+              return;
+            }
+            setShareCaption(wallCaption || "");
+            setShareModalItem({ image: wallImage });
+          }}>Post to Wall</button>
         </div>
 
         {wallImage && (
@@ -1806,6 +1937,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 currentUser={currentUser}
                 onLike={toggleLike}
                 onComment={addWallComment}
+                onOpen={() => setOpenPostId(item.id)}   // ← 加這行
               />
             ))}
           </div>
@@ -1852,6 +1984,210 @@ function CommunityWallPage({ refreshKey, currentUser }) {
           </div>
         )}
       </section>
+      {/* ── 分享預覽 Modal ── */}
+      {shareModalItem && (
+        <div
+          className="output-preview-overlay"
+          onClick={() => setShareModalItem(null)}
+        >
+          <div
+            className="output-preview-modal"
+            style={{ maxWidth: 520 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="output-preview-header">
+              <div>
+                <h3>📮 發布到社交牆</h3>
+                <p>確認貼文內容後按發布</p>
+              </div>
+              <button
+                className="output-close-btn"
+                onClick={() => setShareModalItem(null)}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* 預覽圖 */}
+            <div style={{
+              borderRadius: 18,
+              overflow: "hidden",
+              marginBottom: 18,
+              background: "#f4e5d6",
+              maxHeight: 320,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
+            }}>
+              <img
+                src={shareModalItem.image}
+                alt="preview"
+                style={{ width: "100%", maxHeight: 320, objectFit: "contain" }}
+              />
+            </div>
+
+            {/* 發布者資訊 */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              marginBottom: 16, padding: "10px 14px",
+              background: "#f4e5d6", borderRadius: 14
+            }}>
+              <span style={{ fontSize: 28 }}>{currentUser.avatar}</span>
+              <div>
+                <div style={{ fontWeight: "bold", color: "#5b3924" }}>{currentUser.nickname}</div>
+                <div style={{ fontSize: 12, color: "#96755c" }}>{currentUser.gmail}</div>
+              </div>
+            </div>
+
+            {/* 編輯說明文字 */}
+            <div className="tool-group">
+              <label>發布文字</label>
+              <textarea
+                value={shareCaption}
+                onChange={(e) => setShareCaption(e.target.value)}
+                placeholder="寫點什麼吧..."
+                style={{ minHeight: 80 }}
+              />
+            </div>
+
+            <div className="output-preview-actions">
+              <button onClick={() => postToWall(shareModalItem.image, shareCaption)}>
+                🚀 發布
+              </button>
+              <button
+                onClick={() => setShareModalItem(null)}
+                style={{ background: "#efe0d1", color: "#5b3924" }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 貼文留言 Modal ── */}
+      {openPostId && (() => {
+        const post = gallery.find((item) => item.id === openPostId);
+        if (!post) return null;
+        const likes = post.likes || [];
+        const comments = post.comments || [];
+        const liked = likes.includes(currentUser.gmail);
+
+        return (
+          <div
+            className="output-preview-overlay"
+            onClick={() => setOpenPostId(null)}
+          >
+            <div
+              className="output-preview-modal"
+              style={{ maxWidth: 680 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="output-preview-header">
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 26 }}>{post.avatar || "🌷"}</span>
+                  <div>
+                    <div style={{ fontWeight: "bold", color: "#5b3924" }}>{post.name}</div>
+                    <div style={{ fontSize: 12, color: "#96755c" }}>{post.createdAt}</div>
+                  </div>
+                </div>
+                <button
+                  className="output-close-btn"
+                  onClick={() => setOpenPostId(null)}
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* 圖片 */}
+              <div style={{
+                borderRadius: 18, overflow: "hidden",
+                marginBottom: 16, background: "#f4e5d6",
+                maxHeight: 360, display: "flex",
+                alignItems: "center", justifyContent: "center"
+              }}>
+                <img
+                  src={post.image}
+                  alt={post.caption}
+                  style={{ width: "100%", maxHeight: 360, objectFit: "contain" }}
+                />
+              </div>
+
+              {/* 說明文字 */}
+              <p style={{ margin: "0 0 14px 0", color: "#6b4a36", lineHeight: 1.6, fontSize: 16 }}>
+                {post.caption}
+              </p>
+
+              {/* 按讚 */}
+              <div style={{ marginBottom: 18 }}>
+                <button
+                  className={liked ? "liked" : ""}
+                  style={{
+                    border: "none", borderRadius: 999,
+                    background: liked ? "#b86b5b" : "#ead7c4",
+                    color: liked ? "white" : "#6a3d24",
+                    padding: "8px 16px", fontWeight: "bold", cursor: "pointer"
+                  }}
+                  onClick={() => toggleLike(post.id)}
+                >
+                  {liked ? "♥ Liked" : "♡ Like"} · {likes.length}
+                </button>
+              </div>
+
+              {/* 留言列表 */}
+              <div style={{
+                maxHeight: 240, overflowY: "auto",
+                display: "grid", gap: 10, marginBottom: 16
+              }}>
+                {comments.length === 0 ? (
+                  <div style={{
+                    padding: 18, borderRadius: 14,
+                    background: "#f4e5d6", color: "#7b5638",
+                    textAlign: "center", fontWeight: "bold"
+                  }}>
+                    還沒有留言，來第一個留言！
+                  </div>
+                ) : (
+                  comments.map((comment) => (
+                    <div className="wall-comment-item" key={comment.id}>
+                      <span>{comment.avatar}</span>
+                      <div>
+                        <strong>{comment.name}</strong>
+                        <p>{comment.text}</p>
+                        <small>{comment.createdAt}</small>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* 新增留言 */}
+              <div className="wall-comment-box">
+                <input
+                  type="text"
+                  placeholder="留言..."
+                  id={`modal-comment-${post.id}`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && e.target.value.trim()) {
+                      addWallComment(post.id, e.target.value.trim());
+                      e.target.value = "";
+                      // 強制重新取得最新留言
+                      setOpenPostId((prev) => prev);
+                    }
+                  }}
+                />
+                <button onClick={() => {
+                  const input = document.getElementById(`modal-comment-${post.id}`);
+                  if (!input?.value.trim()) return;
+                  addWallComment(post.id, input.value.trim());
+                  input.value = "";
+                  setOpenPostId((prev) => prev);
+                }}>Send</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1950,10 +2286,10 @@ function App() {
       name: currentUser?.nickname || "Guest",
       gmail: currentUser?.gmail || "",
       avatar: currentUser?.avatar || "🌷",
-      caption:
-        item.type === "postcard"
+      caption: item.caption ||
+        (item.type === "postcard"
           ? `Shared postcard: ${item.title}`
-          : `Shared photo strip: ${item.title}`,
+          : `Shared photo strip: ${item.title}`),
       createdAt: new Date().toLocaleString(),
       likes: [],
       comments: []

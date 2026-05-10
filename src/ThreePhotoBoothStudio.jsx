@@ -62,12 +62,146 @@ function drawCoverImage(ctx, img, x, y, w, h) {
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
+function applyFilterOverlay(ctx, filter, x, y, w, h) {
+  switch (filter) {
+    case "warm":
+      // 暖調：橘黃色疊加
+      ctx.fillStyle = "rgba(255, 140, 30, 0.18)";
+      ctx.fillRect(x, y, w, h);
+      // 再加一層粉紅提亮
+      ctx.fillStyle = "rgba(255, 80, 60, 0.07)";
+      ctx.fillRect(x, y, w, h);
+      break;
+
+    case "cool":
+      // 冷調：青藍色疊加
+      ctx.fillStyle = "rgba(40, 120, 220, 0.16)";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "rgba(100, 200, 255, 0.08)";
+      ctx.fillRect(x, y, w, h);
+      break;
+
+    case "dramatic":
+      // 戲劇感：加深暗角 + 高對比
+      const vignette = ctx.createRadialGradient(
+        x + w / 2, y + h / 2, w * 0.28,
+        x + w / 2, y + h / 2, w * 0.75
+      );
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.52)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(x, y, w, h);
+      // 輕微紅棕色調
+      ctx.fillStyle = "rgba(80, 20, 10, 0.1)";
+      ctx.fillRect(x, y, w, h);
+      break;
+
+    case "ccd":
+      // CCD 感：輕微偏青、低飽和、加橫向掃描線
+      ctx.fillStyle = "rgba(30, 180, 160, 0.1)";
+      ctx.fillRect(x, y, w, h);
+      // 掃描線
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.06)";
+      ctx.lineWidth = 1;
+      for (let sy = y; sy < y + h; sy += 3) {
+        ctx.beginPath();
+        ctx.moveTo(x, sy);
+        ctx.lineTo(x + w, sy);
+        ctx.stroke();
+      }
+      // 輕微雜訊感（用隨機點模擬）
+      for (let n = 0; n < 120; n++) {
+        const nx = x + Math.random() * w;
+        const ny = y + Math.random() * h;
+        ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.12})`;
+        ctx.fillRect(nx, ny, 1.5, 1.5);
+      }
+      break;
+
+    case "polaroid":
+      // 拍立得：偏黃、輕微褪色、暗角
+      ctx.fillStyle = "rgba(255, 220, 100, 0.12)";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
+      ctx.fillRect(x, y, w, h);
+      // 柔和暗角
+      const pVignette = ctx.createRadialGradient(
+        x + w / 2, y + h / 2, w * 0.35,
+        x + w / 2, y + h / 2, w * 0.72
+      );
+      pVignette.addColorStop(0, "rgba(0,0,0,0)");
+      pVignette.addColorStop(1, "rgba(80,50,10,0.28)");
+      ctx.fillStyle = pVignette;
+      ctx.fillRect(x, y, w, h);
+      break;
+
+    case "dreamcore":
+      // 夢核：粉紫色調 + 輕微光暈
+      ctx.fillStyle = "rgba(180, 100, 255, 0.13)";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "rgba(255, 150, 200, 0.1)";
+      ctx.fillRect(x, y, w, h);
+      // 中心光暈
+      const dreamGlow = ctx.createRadialGradient(
+        x + w / 2, y + h / 2, 0,
+        x + w / 2, y + h / 2, w * 0.6
+      );
+      dreamGlow.addColorStop(0, "rgba(255,255,255,0.18)");
+      dreamGlow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = dreamGlow;
+      ctx.fillRect(x, y, w, h);
+      break;
+
+    case "glitch":
+      // 故障效果：RGB 色差條紋
+      // 紅色偏移條
+      for (let g = 0; g < 4; g++) {
+        const gy = y + Math.random() * h;
+        const gh = 2 + Math.random() * 8;
+        ctx.fillStyle = `rgba(255, 0, 60, ${0.15 + Math.random() * 0.2})`;
+        ctx.fillRect(x + Math.random() * 8 - 4, gy, w, gh);
+        ctx.fillStyle = `rgba(0, 200, 255, ${0.1 + Math.random() * 0.15})`;
+        ctx.fillRect(x - Math.random() * 8 + 4, gy + gh, w, gh * 0.8);
+      }
+      // 白色雜訊條
+      const noiseY = y + Math.random() * h * 0.7;
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.fillRect(x, noiseY, w, 3 + Math.random() * 5);
+      break;
+
+    case "mono":
+      // 黑白底片感：去飽和 + 暗角
+      ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+      ctx.fillRect(x, y, w, h);
+      // 注意：canvas 2D 無法直接去飽和，用灰色疊加模擬
+      ctx.fillStyle = "rgba(128, 128, 128, 0.22)";
+      ctx.globalCompositeOperation = "saturation";
+      ctx.fillRect(x, y, w, h);
+      ctx.globalCompositeOperation = "source-over";
+      // 底片顆粒暗角
+      const monoVig = ctx.createRadialGradient(
+        x + w / 2, y + h / 2, w * 0.3,
+        x + w / 2, y + h / 2, w * 0.78
+      );
+      monoVig.addColorStop(0, "rgba(0,0,0,0)");
+      monoVig.addColorStop(1, "rgba(0,0,0,0.45)");
+      ctx.fillStyle = monoVig;
+      ctx.fillRect(x, y, w, h);
+      break;
+
+    default:
+      break;
+  }
+}
+
 async function createStripDataUrl({
   layoutCount,
   photoTitle,
   photoSubtitle,
   photoDate,
   photoTheme,
+  photoFilter,
+  frameColor,
   photos
 }) {
   const width = 760;
@@ -139,7 +273,7 @@ async function createStripDataUrl({
     const x = paddingX;
     const y = top + i * (frameH + gap);
 
-    ctx.fillStyle = theme.frame;
+    ctx.fillStyle = frameColor || theme.frame;
     drawRoundRect(ctx, x, y, frameW, frameH, 28);
     ctx.fill();
 
@@ -166,6 +300,16 @@ async function createStripDataUrl({
     }
 
     ctx.restore();
+    ctx.restore();
+
+    // 濾鏡疊加
+    if (photoFilter && photoFilter !== "none" && imgs[i]) {
+      ctx.save();
+      drawRoundRect(ctx, x + 14, y + 14, frameW - 28, frameH - 28, 22);
+      ctx.clip();
+      applyFilterOverlay(ctx, photoFilter, x + 14, y + 14, frameW - 28, frameH - 28);
+      ctx.restore();
+    }
 
     ctx.strokeStyle = "rgba(255,255,255,0.9)";
     ctx.lineWidth = 6;
@@ -453,6 +597,9 @@ function ThreePhotoBoothStudio({ onSaveArtwork }) {
   const [printProgress, setPrintProgress] = useState(0);
   const [showPrintedStrip, setShowPrintedStrip] = useState(false);
 
+  const [photoFilter, setPhotoFilter] = useState("none");
+  const [frameColor, setFrameColor] = useState("#f0e5d8");
+
   const printTimerRef = useRef(null);
 
   const photoThemes = {
@@ -469,9 +616,11 @@ function ThreePhotoBoothStudio({ onSaveArtwork }) {
       photoSubtitle,
       photoDate,
       photoTheme,
+      photoFilter,
+      frameColor,
       photos
     };
-  }, [layoutCount, photoTitle, photoSubtitle, photoDate, photoTheme, photos]);
+  }, [layoutCount, photoTitle, photoSubtitle, photoDate, photoTheme, photoFilter, frameColor, photos]);
 
   useEffect(() => {
     let cancelled = false;
@@ -596,6 +745,8 @@ function ThreePhotoBoothStudio({ onSaveArtwork }) {
     setShowPrintedStrip(false);
     setPrinting(false);
     setPrintProgress(0);
+    setPhotoFilter("none");
+    setFrameColor("#f0e5d8");
   };
 
   return (
@@ -664,6 +815,75 @@ function ThreePhotoBoothStudio({ onSaveArtwork }) {
           </div>
         </div>
 
+        {/* 濾鏡選擇 */}
+        <div className="tool-group">
+          <label>Photo Filter</label>
+          <div className="theme-buttons">
+            {[
+              { key: "none",     label: "無濾鏡" },
+              { key: "warm",     label: "🌅 暖調" },
+              { key: "cool",     label: "🧊 冷調" },
+              { key: "dramatic", label: "🎭 戲劇" },
+              { key: "ccd",      label: "📷 CCD" },
+              { key: "polaroid", label: "🏷️ 拍立得" },
+              { key: "dreamcore",label: "🌙 夢核" },
+              { key: "glitch",   label: "⚡ 故障" },
+              { key: "mono",     label: "🎞️ 黑白" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                className={photoFilter === key ? "active" : ""}
+                onClick={() => setPhotoFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 框邊顏色 */}
+        <div className="tool-group">
+          <label>Frame Color</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {[
+              "#f0e5d8", "#ffffff", "#1a1a1a", "#ffd6e0",
+              "#d6eaff", "#d6ffd6", "#fff3cd", "#e8d5ff"
+            ].map((color) => (
+              <div
+                key={color}
+                onClick={() => setFrameColor(color)}
+                style={{
+                  width: 30, height: 30, borderRadius: 8,
+                  background: color, cursor: "pointer",
+                  border: frameColor === color
+                    ? "3px solid #3b2a20"
+                    : "2px solid rgba(0,0,0,0.15)",
+                  boxShadow: frameColor === color
+                    ? "0 0 0 2px rgba(255,255,255,0.8)"
+                    : "none",
+                  transition: "0.15s"
+                }}
+              />
+            ))}
+            <div style={{ position: "relative", width: 30, height: 30, flexShrink: 0 }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: 8,
+                background: frameColor, border: "2px dashed #c4a98a",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 14, cursor: "pointer"
+              }}>🎨</div>
+              <input
+                type="color"
+                value={frameColor}
+                onChange={(e) => setFrameColor(e.target.value)}
+                style={{
+                  position: "absolute", inset: 0, opacity: 0,
+                  cursor: "pointer", width: "100%", height: "100%"
+                }}
+              />
+            </div>
+          </div>
+        </div>
         <div className="tool-group">
           <label>Upload Photos</label>
 

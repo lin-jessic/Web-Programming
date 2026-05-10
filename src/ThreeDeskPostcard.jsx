@@ -1,7 +1,28 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Text, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
+
+
+function useImageTexture(dataUrl) {
+  const [texture, setTexture] = useState(null);
+
+  useEffect(() => {
+    if (!dataUrl) {
+      setTexture(null);
+      return;
+    }
+    const loader = new THREE.TextureLoader();
+    loader.load(dataUrl, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      setTexture(tex);
+    });
+  }, [dataUrl]);
+
+  return texture;
+}
+
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -107,6 +128,9 @@ function DeskDecorations() {
 }
 
 function StampMark3D({ stamp }) {
+  const color = stamp.color || "#b32924";
+  const texture = useImageTexture(stamp.customImage);
+
   return (
     <group
       position={[stamp.x, 0.155, stamp.z]}
@@ -115,35 +139,35 @@ function StampMark3D({ stamp }) {
     >
       <mesh>
         <torusGeometry args={[0.22, 0.014, 16, 80]} />
-        <meshStandardMaterial color="#b32924" roughness={0.48} />
+        <meshStandardMaterial color={color} roughness={0.48} />
       </mesh>
-
       <mesh>
         <torusGeometry args={[0.155, 0.007, 16, 80]} />
-        <meshStandardMaterial color="#b32924" roughness={0.6} />
+        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
-
       <mesh>
         <circleGeometry args={[0.205, 60]} />
-        <meshStandardMaterial
-          color="#b32924"
-          transparent
-          opacity={0.06}
-          roughness={0.9}
-        />
+        <meshStandardMaterial color={color} transparent opacity={0.06} roughness={0.9} />
       </mesh>
 
-      <Text
-        position={[0, 0, 0.012]}
-        fontSize={0.07}
-        color="#b32924"
-        anchorX="center"
-        anchorY="middle"
-        maxWidth={0.33}
-        textAlign="center"
-      >
-        {stamp.text}
-      </Text>
+      {texture ? (
+        <mesh position={[0, 0, 0.012]}>
+          <planeGeometry args={[0.28, 0.28]} />
+          <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} />
+        </mesh>
+      ) : (
+        <Text
+          position={[0, 0, 0.012]}
+          fontSize={0.07}
+          color={color}
+          anchorX="center"
+          anchorY="middle"
+          maxWidth={0.33}
+          textAlign="center"
+        >
+          {stamp.text}
+        </Text>
+      )}
     </group>
   );
 }
@@ -700,6 +724,16 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
   const [hoverPoint, setHoverPoint] = useState(null);
   const [showOutputPreview, setShowOutputPreview] = useState(false);
   const [exportPreview, setExportPreview] = useState(null);
+  const [showStampSettings, setShowStampSettings] = useState(false);
+  const [stampColor, setStampColor] = useState("#b32924");
+  const [stampCustomImage, setStampCustomImage] = useState(null);      // 處理後的圖（給蓋章用）
+  const [stampOriginalImage, setStampOriginalImage] = useState(null);   // 原始圖（給重新上色用）
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawColor, setDrawColor] = useState("#000000");
+  const [brushSize, setBrushSize] = useState(8);
+  const [drawMode, setDrawMode] = useState("pen");
+  const drawCanvasRef = useRef(null);
+  const lastPointRef = useRef(null);
 
   const themes = {
     vintage: "Vintage",
@@ -708,6 +742,13 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     night: "Night",
     cream: "Cream"
   };
+
+  useEffect(() => {
+    if (!stampOriginalImage) return;
+    applyColorToImage(stampOriginalImage, stampColor).then((colored) => {
+      setStampCustomImage(colored);
+    });
+  }, [stampColor, stampOriginalImage]);
 
   const stampOptions = ["LOVE", "TRAVEL", "AIR MAIL", "CGU", "2026", "MEMORY"];
 
@@ -769,13 +810,15 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     }
   };
 
-  const drawStampOnCanvas = (ctx, x, y, text, rotation, scale) => {
+  const drawStampOnCanvas = (ctx, x, y, text, rotation, scale, color, customImage) => {
+    const c = (color && color.startsWith("#") && color.length === 7) ? color : "#b32924";
+    
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rotation || 0);
     ctx.scale(scale || 1, scale || 1);
-    ctx.strokeStyle = "rgba(179, 41, 36, 0.92)";
-    ctx.fillStyle = "rgba(179, 41, 36, 0.08)";
+    ctx.strokeStyle = c + "eb";   // 約 92% 透明度
+    ctx.fillStyle = c + "14";     // 約 8% 透明度
     ctx.lineWidth = 8;
     ctx.beginPath();
     ctx.arc(0, 0, 62, 0, Math.PI * 2);
@@ -787,11 +830,25 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     ctx.arc(0, 0, 43, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(179, 41, 36, 0.92)";
+
+  if (customImage) {
+    // 圖片印章：畫在圓圈中間
+    const img = new Image();
+    img.src = customImage;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, 43, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, -43, -43, 86, 86);
+    ctx.restore();
+    
+  } else {
+    ctx.fillStyle = c;
     ctx.font = "bold 18px Trebuchet MS, Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text || "STAMP", 0, 0);
+  }
     ctx.restore();
   };
 
@@ -876,7 +933,7 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     sideStamps.forEach((stamp) => {
       const x = 100 + ((stamp.x - cardBounds.minX) / (cardBounds.maxX - cardBounds.minX)) * 800;
       const y = 100 + ((stamp.z - cardBounds.minZ) / (cardBounds.maxZ - cardBounds.minZ)) * 460;
-      drawStampOnCanvas(ctx, x, y, stamp.text, stamp.rotation, stamp.scale);
+      drawStampOnCanvas(ctx, x, y, stamp.text, stamp.rotation, stamp.scale, stamp.color, stamp.customImage);
     });
 
     ctx.fillStyle = "#7b5638";
@@ -977,6 +1034,173 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     }
   };
 
+  const applyColorToImage = (originalDataUrl, color) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const size = Math.min(img.width, img.height);
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+
+        // 裁成圓形
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+        ctx.clip();
+
+        // 置中繪製原圖
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+
+        // 取得像素
+        const imageData = ctx.getImageData(0, 0, size, size);
+        const data = imageData.data;
+
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] === 0) continue;
+
+          // 第一步：轉灰階
+          const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+
+          // 第二步：拉高對比（讓灰階往黑白兩端推）
+          // contrast 值越高對比越強，128 是中點
+          const contrast = 2.2;
+          const adjusted = Math.min(255, Math.max(0, (gray - 128) * contrast + 128));
+
+          // 第三步：白色背景 → 透明，其他依灰度決定透明度
+          if (adjusted > 220) {
+            // 非常亮 → 完全透明（白色背景消除）
+            data[i + 3] = 0;
+          } else {
+            // 實色疊印混合：用灰度當 alpha 蒙版
+            // 越暗（adjusted 越小）→ 越不透明，顏色越飽滿
+            const alpha = 1 - adjusted / 255;
+
+            // 實色疊印：直接用選色填滿，不做漸層過渡
+            // 越暗的地方完全是選色，越亮的地方透明度降低
+            data[i]     = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+            data[i + 3] = Math.round(alpha * 255);
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.src = originalDataUrl;
+    });
+  };
+  
+  const initDrawCanvas = () => {
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const loadImageToDrawCanvas = (dataUrl) => {
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // 置中繪製，保持比例
+      const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+      const x = (canvas.width - img.width * scale) / 2;
+      const y = (canvas.height - img.height * scale) / 2;
+      ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+    };
+    img.src = dataUrl;
+  };
+
+  const getCanvasPoint = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  };
+
+  const handleDrawStart = (e) => {
+    e.preventDefault();
+    setIsDrawing(true);
+    const point = getCanvasPoint(e, drawCanvasRef.current);
+    lastPointRef.current = point;
+  };
+
+  const handleDrawMove = (e) => {
+    e.preventDefault();
+    if (!isDrawing) return;
+    const canvas = drawCanvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const point = getCanvasPoint(e, canvas);
+    const last = lastPointRef.current;
+
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.strokeStyle = drawMode === "eraser" ? "#ffffff" : drawColor;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    lastPointRef.current = point;
+  };
+
+  const handleDrawEnd = (e) => {
+    e.preventDefault();
+    setIsDrawing(false);
+    lastPointRef.current = null;
+  };
+
+  const applyDrawingAsStamp = async () => {
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    setStampOriginalImage(dataUrl);
+    const colored = await applyColorToImage(dataUrl, stampColor);
+    setStampCustomImage(colored);
+  };
+
+  const clearDrawCanvas = () => {
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const handleStampImageUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const originalDataUrl = reader.result;
+      setStampOriginalImage(originalDataUrl);
+      const colored = await applyColorToImage(originalDataUrl, stampColor);
+      setStampCustomImage(colored);
+      setTimeout(() => loadImageToDrawCanvas(originalDataUrl), 100);
+    };
+    reader.readAsDataURL(file);
+  };
+
+
   const placeStamp = ({ x, z, side }) => {
     setStampPressing(true);
 
@@ -987,6 +1211,8 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
       z,
       text: stampText,
       scale: stampScale,
+      color: stampColor,   // ← 加上這行
+      customImage: stampCustomImage || null,  // ← 加這行
       rotation: THREE.MathUtils.degToRad(Math.random() * 22 - 11)
     };
 
@@ -1156,6 +1382,27 @@ const undoLastStamp = () => {
         </div>
 
         <div className="tool-group">
+          <button
+            onClick={() => setShowStampSettings(true)}
+            style={{
+              border: "none",
+              borderRadius: 999,
+              padding: "11px 16px",
+              background: "#8b5734",
+              color: "white",
+              fontWeight: "bold",
+              cursor: "pointer",
+              width: "100%",
+              fontSize: 15
+            }}
+          >
+            🖋 Stamp Settings（自定義印章）
+          </button>
+        </div>
+
+        
+
+        <div className="tool-group">
           <label>Stamp Size</label>
           <input
             type="range"
@@ -1242,6 +1489,7 @@ const undoLastStamp = () => {
 
         <div className="three-desk-quick-actions">
           <button onClick={openOutputPreview}>360° Preview</button>
+          <button onClick={() => setShowStampSettings(true)}>🖋 Stamp Settings</button>  {/* ← 加這行 */}
           <button onClick={undoLastStamp}>Undo Last Stamp</button>
           <button onClick={resetStampTool}>Reset Stamp Position</button>
           <button onClick={clearSideStamps}>Clear This Side</button>
@@ -1295,6 +1543,209 @@ const undoLastStamp = () => {
               <button onClick={saveToStorage}>Save Front + Back to My Storage</button>
               <button onClick={download3DDesk}>Download Front + Back PNG</button>
               <button onClick={() => setShowOutputPreview(false)}>Back to Editing</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showStampSettings && (
+        <div className="output-preview-overlay" onClick={() => setShowStampSettings(false)}>
+          <div
+            className="output-preview-modal"
+            style={{ maxWidth: 480 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="output-preview-header">
+              <div>
+                <h3>🖋 Stamp Settings</h3>
+                <p>自定義印章文字、顏色與圖案</p>
+              </div>
+              <button className="output-close-btn" onClick={() => setShowStampSettings(false)}>×</button>
+            </div>
+
+            {/* 文字選擇 */}
+            <div className="tool-group">
+              <label>預設印章文字</label>
+              <div className="stamp-buttons">
+                {stampOptions.map((item) => (
+                  <button
+                    key={item}
+                    className={stampText === item ? "active" : ""}
+                    onClick={() => setStampText(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 自定義文字輸入 */}
+            <div className="tool-group">
+              <label>自定義文字</label>
+              <input
+                type="text"
+                placeholder="例如：MIYA / DAILY LIFE"
+                maxLength={12}
+                value={stampOptions.includes(stampText) ? "" : stampText}
+                onChange={(e) => setStampText(e.target.value || "LOVE")}
+              />
+            </div>
+
+            {/* 顏色選擇 */}
+            <div className="tool-group">
+              <label>印章顏色</label>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {["#b32924","#2a6eb3","#2ab36e","#8b2ab3","#b3862a","#222222"].map((color) => (
+                  <div
+                    key={color}
+                    onClick={() => setStampColor(color)}
+                    style={{
+                      width: 32, height: 32, borderRadius: "50%",
+                      background: color, cursor: "pointer",
+                      border: stampColor === color ? "3px solid #333" : "3px solid transparent",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.18)"
+                    }}
+                  />
+                ))}
+                <input
+                  className="color-input"
+                  type="color"
+                  value={stampColor}
+                  onChange={(e) => setStampColor(e.target.value)}
+                  style={{ width: 40, height: 36 }}
+                />
+              </div>
+            </div>
+
+            {/* 圖片上傳 */}
+            <div className="tool-group">
+              <label>上傳印章圖案（會自動去背）</label>
+              <label className="upload-btn">
+                Upload Image
+                <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleStampImageUpload} />
+              </label>
+              {stampCustomImage && (
+                <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                  <img src={stampCustomImage} alt="stamp preview"
+                    style={{ width: 64, height: 64, objectFit: "contain", background: "#f4e5d6", borderRadius: 10 }} />
+                  <button className="remove-photo-btn" 
+                  onClick={() => {
+                    setShowStampSettings(true);
+                    setTimeout(() => {
+                      initDrawCanvas();
+                      if (stampOriginalImage) loadImageToDrawCanvas(stampOriginalImage);
+                    }, 50);
+                  }}>Remove</button>
+                </div>
+              )}
+            </div>
+
+            {/* 繪製章面 */}
+            <div className="tool-group">
+              <label>繪製章面</label>
+
+              <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  onClick={() => setDrawMode("pen")}
+                  style={{
+                    border: "none", borderRadius: 999, padding: "8px 14px",
+                    background: drawMode === "pen" ? "#8b5734" : "#efe0d1",
+                    color: drawMode === "pen" ? "white" : "#5b3924",
+                    fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  ✏️ 畫筆
+                </button>
+                <button
+                  onClick={() => setDrawMode("eraser")}
+                  style={{
+                    border: "none", borderRadius: 999, padding: "8px 14px",
+                    background: drawMode === "eraser" ? "#8b5734" : "#efe0d1",
+                    color: drawMode === "eraser" ? "white" : "#5b3924",
+                    fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  🧹 橡皮擦
+                </button>
+
+                <input
+                  type="color"
+                  value={drawColor}
+                  onChange={(e) => setDrawColor(e.target.value)}
+                  style={{ width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", padding: 2 }}
+                  title="畫筆顏色"
+                />
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+                  <span style={{ fontSize: 12, color: "#7b5638", whiteSpace: "nowrap" }}>筆刷</span>
+                  <input
+                    type="range" min={2} max={40} value={brushSize}
+                    onChange={(e) => setBrushSize(Number(e.target.value))}
+                    style={{ flex: 1 }}
+                  />
+                  <span style={{ fontSize: 12, color: "#7b5638", width: 24 }}>{brushSize}</span>
+                </div>
+              </div>
+
+              <div style={{ position: "relative", width: "100%", aspectRatio: "1", borderRadius: "50%", overflow: "hidden", border: `3px solid ${stampColor}`, boxShadow: "0 4px 18px rgba(0,0,0,0.12)", background: "#fff" }}>
+                <canvas
+                  ref={drawCanvasRef}
+                  width={400}
+                  height={400}
+                  style={{ width: "100%", height: "100%", display: "block", cursor: drawMode === "eraser" ? "cell" : "crosshair", touchAction: "none" }}
+                  onMouseDown={handleDrawStart}
+                  onMouseMove={handleDrawMove}
+                  onMouseUp={handleDrawEnd}
+                  onMouseLeave={handleDrawEnd}
+                  onTouchStart={handleDrawStart}
+                  onTouchMove={handleDrawMove}
+                  onTouchEnd={handleDrawEnd}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <button
+                  onClick={applyDrawingAsStamp}
+                  style={{
+                    flex: 1, border: "none", borderRadius: 999, padding: "10px 14px",
+                    background: "#8b5734", color: "white", fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  套用為印章
+                </button>
+                <button
+                  onClick={() => {
+                    setShowStampSettings(true);
+                    setTimeout(() => {
+                      initDrawCanvas();
+                      if (stampOriginalImage) loadImageToDrawCanvas(stampOriginalImage);
+                    }, 50);
+                  }}
+                  style={{
+                    border: "none", borderRadius: 999, padding: "10px 14px",
+                    background: "#efe0d1", color: "#5b3924", fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  重置
+                </button>
+                <button
+                  onClick={clearDrawCanvas}
+                  style={{
+                    border: "none", borderRadius: 999, padding: "10px 14px",
+                    background: "#b86b5b", color: "white", fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  清除
+                </button>
+              </div>
+
+              <p style={{ marginTop: 8, fontSize: 13, color: "#96755c", lineHeight: 1.5 }}>
+                上傳圖片後會自動載入畫布，可以繼續在上面繪製。按「套用為印章」後才會更新印章。
+              </p>
+            </div>
+
+            <div className="action-buttons">
+              <button onClick={() => setShowStampSettings(false)}>Done</button>
             </div>
           </div>
         </div>
