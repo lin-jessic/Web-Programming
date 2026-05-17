@@ -130,34 +130,39 @@ function DeskDecorations() {
 function StampMark3D({ stamp }) {
   const color = stamp.color || "#b32924";
   const texture = useImageTexture(stamp.customImage);
+  const showBorder = stamp.border !== false;
 
   return (
     <group
-      position={[stamp.x, 0.155, stamp.z]}
+      position={[stamp.x, 0.156, stamp.z]}   // ← 原本 0.155，稍微拉高一點點
       rotation={[-Math.PI / 2, 0, stamp.rotation]}
       scale={stamp.scale}
     >
-      <mesh>
-        <torusGeometry args={[0.22, 0.014, 16, 80]} />
-        <meshStandardMaterial color={color} roughness={0.48} />
-      </mesh>
-      <mesh>
-        <torusGeometry args={[0.155, 0.007, 16, 80]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
-      </mesh>
-      <mesh>
-        <circleGeometry args={[0.205, 60]} />
-        <meshStandardMaterial color={color} transparent opacity={0.06} roughness={0.9} />
-      </mesh>
+      {showBorder && (
+        <>
+          <mesh position={[0, 0, 0]}>
+            <torusGeometry args={[0.22, 0.014, 16, 80]} />
+            <meshStandardMaterial color={color} roughness={0.48} />
+          </mesh>
+          <mesh position={[0, 0, 0.001]}>   {/* ← 加一點點 Z 偏移 */}
+            <torusGeometry args={[0.155, 0.007, 16, 80]} />
+            <meshStandardMaterial color={color} roughness={0.6} />
+          </mesh>
+          <mesh position={[0, 0, 0.002]}>   {/* ← 再加一點點 */}
+            <circleGeometry args={[0.205, 60]} />
+            <meshStandardMaterial color={color} transparent opacity={0.06} roughness={0.9} />
+          </mesh>
+        </>
+      )}
 
       {texture ? (
-        <mesh position={[0, 0, 0.012]}>
+        <mesh position={[0, 0, 0.003]}>     {/* ← 圖片在最上面 */}
           <planeGeometry args={[0.28, 0.28]} />
-          <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} />
+          <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
       ) : (
         <Text
-          position={[0, 0, 0.012]}
+          position={[0, 0, 0.003]}           /* ← 文字也往上 */
           fontSize={0.07}
           color={color}
           anchorX="center"
@@ -172,7 +177,10 @@ function StampMark3D({ stamp }) {
   );
 }
 
-function PreviewStamp3D({ hoverPoint, stampText, stampScale }) {
+function PreviewStamp3D({ hoverPoint, stampText, stampScale, stampColor, stampCustomImage, stampBorder }) {
+  const texture = useImageTexture(stampCustomImage);
+  const color = stampColor || "#b32924";
+
   if (!hoverPoint) return null;
 
   return (
@@ -181,33 +189,93 @@ function PreviewStamp3D({ hoverPoint, stampText, stampScale }) {
       rotation={[-Math.PI / 2, 0, 0]}
       scale={stampScale}
     >
+      {stampBorder !== false && (
+        <>
+          <mesh>
+            <torusGeometry args={[0.22, 0.012, 16, 80]} />
+            <meshStandardMaterial color={color} transparent opacity={0.38} roughness={0.6} />
+          </mesh>
+          <mesh>
+            <torusGeometry args={[0.155, 0.006, 16, 80]} />
+            <meshStandardMaterial color={color} transparent opacity={0.32} />
+          </mesh>
+          <mesh>
+            <circleGeometry args={[0.205, 60]} />
+            <meshStandardMaterial color={color} transparent opacity={0.05} roughness={0.9} />
+          </mesh>
+        </>
+      )}
+
+      {texture ? (
+        <mesh position={[0, 0, 0.012]}>
+          <planeGeometry args={[0.28, 0.28]} />
+          <meshBasicMaterial map={texture} transparent opacity={0.65} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+      ) : (
+        <Text
+          position={[0, 0, 0.012]}
+          fontSize={0.07}
+          color={color}
+          fillOpacity={0.5}
+          anchorX="center"
+          anchorY="middle"
+          maxWidth={0.33}
+          textAlign="center"
+        >
+          {stampText}
+        </Text>
+      )}
+    </group>
+  );
+}
+function DragPreview({ position, stampText, stampColor, stampBorder, stampCustomImage, stampScale }) {
+  const texture = useImageTexture(stampCustomImage);
+  const color = stampColor || "#b32924";
+
+  return (
+    <group
+      position={[position.x, 0.22, position.z]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      scale={stampScale || 1}
+    >
+      {/* 光暈 */}
       <mesh>
-        <torusGeometry args={[0.22, 0.012, 16, 80]} />
-        <meshStandardMaterial
-          color="#b32924"
-          transparent
-          opacity={0.32}
-          roughness={0.6}
-        />
+        <circleGeometry args={[0.38, 64]} />
+        <meshBasicMaterial color="#1a0e06" transparent opacity={0.13} depthWrite={false} />
       </mesh>
 
-      <mesh>
-        <torusGeometry args={[0.155, 0.006, 16, 80]} />
-        <meshStandardMaterial color="#b32924" transparent opacity={0.32} />
-      </mesh>
+      {stampBorder !== false && (
+        <>
+          <mesh position={[0, 0, 0.001]}>
+            <torusGeometry args={[0.22, 0.013, 16, 80]} />
+            <meshBasicMaterial color={color} transparent opacity={0.55} depthWrite={false} />
+          </mesh>
+          <mesh position={[0, 0, 0.002]}>
+            <torusGeometry args={[0.155, 0.007, 16, 80]} />
+            <meshBasicMaterial color={color} transparent opacity={0.4} depthWrite={false} />
+          </mesh>
+        </>
+      )}
 
-      <Text
-        position={[0, 0, 0.012]}
-        fontSize={0.07}
-        color="#b32924"
-        fillOpacity={0.4}
-        anchorX="center"
-        anchorY="middle"
-        maxWidth={0.33}
-        textAlign="center"
-      >
-        {stampText}
-      </Text>
+      {texture ? (
+        <mesh position={[0, 0, 0.003]}>
+          <planeGeometry args={[0.28, 0.28]} />
+          <meshBasicMaterial map={texture} transparent opacity={0.65} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+      ) : (
+        <Text
+          position={[0, 0, 0.003]}
+          fontSize={0.07}
+          color={color}
+          fillOpacity={0.6}
+          anchorX="center"
+          anchorY="middle"
+          maxWidth={0.33}
+          textAlign="center"
+        >
+          {stampText}
+        </Text>
+      )}
     </group>
   );
 }
@@ -301,7 +369,10 @@ function PostcardBoard({
   stamps,
   hoverPoint,
   setHoverPoint,
-  onPlaceStamp
+  onPlaceStamp,
+  stampColor,
+  stampCustomImage,
+  stampBorder,
 }) {
   const themeColors = {
     vintage: {
@@ -375,7 +446,7 @@ function PostcardBoard({
         <meshStandardMaterial color={colors.paper} roughness={0.86} />
       </mesh>
 
-      <mesh position={[0, 0.058, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, 0.062, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[4.5, 2.9]} />
         <meshStandardMaterial
           color="#ffffff"
@@ -523,6 +594,9 @@ function PostcardBoard({
           hoverPoint={hoverPoint}
           stampText={stampText}
           stampScale={stampScale}
+          stampColor={stampColor}
+          stampCustomImage={stampCustomImage}
+          stampBorder={stampBorder}
         />
       )}
     </group>
@@ -541,7 +615,10 @@ function AnimatedPostcardBoard({
   stamps,
   hoverPoint,
   setHoverPoint,
-  onPlaceStamp
+  onPlaceStamp,
+  stampColor,
+  stampCustomImage,
+  stampBorder,
 }) {
   const boardRef = useRef(null);
   const [visibleSide, setVisibleSide] = useState(currentSide);
@@ -600,6 +677,9 @@ function AnimatedPostcardBoard({
         hoverPoint={hoverPoint}
         setHoverPoint={setHoverPoint}
         onPlaceStamp={onPlaceStamp}
+        stampColor={stampColor}
+        stampCustomImage={stampCustomImage}
+        stampBorder={stampBorder}
       />
     </group>
   );
@@ -623,7 +703,10 @@ function ThreeDeskScene({
   onPlaceStamp,
   onStampToolPointerDown,
   onDragStampMove,
-  onDragStampEnd
+  onDragStampEnd,
+    stampColor,
+  stampBorder,
+  stampCustomImage,
 }) {
   return (
     <>
@@ -664,6 +747,9 @@ function ThreeDeskScene({
         hoverPoint={hoverPoint}
         setHoverPoint={setHoverPoint}
         onPlaceStamp={onPlaceStamp}
+        stampColor={stampColor}
+        stampCustomImage={stampCustomImage}
+        stampBorder={stampBorder}
         />
 
       <DeskStampTool
@@ -674,6 +760,17 @@ function ThreeDeskScene({
         position={stampToolPosition}
         onPointerDown={onStampToolPointerDown}
       />
+      {/* 拖曳預覽：只有拖曳中才顯示 */}
+      {draggingStampTool && (
+        <DragPreview
+          position={stampToolPosition}
+          stampText={stampText}
+          stampColor={stampColor}
+          stampBorder={stampBorder}
+          stampCustomImage={stampCustomImage}
+          stampScale={stampScale}
+        />
+      )}
 
       <ContactShadows
         position={[0, -0.025, 0]}
@@ -709,6 +806,7 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     "Name:\nAddress:\nCity:\nCountry:"
   );
 
+  const [stampBorder, setStampBorder] = useState(true); // true = 有邊框
   const [currentSide, setCurrentSide] = useState("front");
   const [theme, setTheme] = useState("vintage");
   const [stampText, setStampText] = useState("LOVE");
@@ -810,45 +908,47 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     }
   };
 
-  const drawStampOnCanvas = (ctx, x, y, text, rotation, scale, color, customImage) => {
+  const drawStampOnCanvas = (ctx, x, y, text, rotation, scale, color, customImage, border = true) => {
     const c = (color && color.startsWith("#") && color.length === 7) ? color : "#b32924";
     
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rotation || 0);
     ctx.scale(scale || 1, scale || 1);
-    ctx.strokeStyle = c + "eb";   // 約 92% 透明度
-    ctx.fillStyle = c + "14";     // 約 8% 透明度
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.arc(0, 0, 62, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.setLineDash([9, 7]);
-    ctx.beginPath();
-    ctx.arc(0, 0, 43, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
 
-  if (customImage) {
-    // 圖片印章：畫在圓圈中間
-    const img = new Image();
-    img.src = customImage;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(0, 0, 43, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.drawImage(img, -43, -43, 86, 86);
-    ctx.restore();
-    
-  } else {
-    ctx.fillStyle = c;
-    ctx.font = "bold 18px Trebuchet MS, Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text || "STAMP", 0, 0);
-  }
+    if (border) {
+      ctx.strokeStyle = c + "eb";
+      ctx.fillStyle = c + "14";
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, 62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.setLineDash([9, 7]);
+      ctx.beginPath();
+      ctx.arc(0, 0, 43, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (customImage) {
+      const img = new Image();
+      img.src = customImage;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(0, 0, border ? 43 : 55, 0, Math.PI * 2); // 無邊框時圖片可以更大
+      ctx.clip();
+      ctx.drawImage(img, border ? -43 : -55, border ? -43 : -55, border ? 86 : 110, border ? 86 : 110);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = c;
+      ctx.font = "bold 18px Trebuchet MS, Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text || "STAMP", 0, 0);
+    }
+
     ctx.restore();
   };
 
@@ -933,7 +1033,8 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
     sideStamps.forEach((stamp) => {
       const x = 100 + ((stamp.x - cardBounds.minX) / (cardBounds.maxX - cardBounds.minX)) * 800;
       const y = 100 + ((stamp.z - cardBounds.minZ) / (cardBounds.maxZ - cardBounds.minZ)) * 460;
-      drawStampOnCanvas(ctx, x, y, stamp.text, stamp.rotation, stamp.scale, stamp.color, stamp.customImage);
+      drawStampOnCanvas(ctx, x, y, stamp.text, stamp.rotation, stamp.scale, stamp.color, stamp.customImage, stamp.border !== false);
+      //                                                                                                       ↑ 加這個
     });
 
     ctx.fillStyle = "#7b5638";
@@ -1213,7 +1314,8 @@ function ThreeDeskPostcard({ onSaveArtwork }) {
       scale: stampScale,
       color: stampColor,   // ← 加上這行
       customImage: stampCustomImage || null,  // ← 加這行
-      rotation: THREE.MathUtils.degToRad(Math.random() * 22 - 11)
+      rotation: THREE.MathUtils.degToRad(Math.random() * 22 - 11),
+      border: stampBorder,  // ← 加這行
     };
 
     setStamps((prev) => [...prev, newStamp]);
@@ -1458,7 +1560,7 @@ const undoLastStamp = () => {
           <Canvas
             shadows
             camera={{ position: [3.4, 4.9, 4.2], fov: 43 }}
-            gl={{ preserveDrawingBuffer: true, antialias: true }}
+            gl={{ preserveDrawingBuffer: true, antialias: true, logarithmicDepthBuffer: true  }}
             onCreated={({ gl }) => {
               glRef.current = gl;
             }}
@@ -1483,6 +1585,9 @@ const undoLastStamp = () => {
               onStampToolPointerDown={handleStampToolPointerDown}
               onDragStampMove={handleDragStampMove}
               onDragStampEnd={handleDragStampEnd}
+              stampColor={stampColor}
+              stampBorder={stampBorder}
+              stampCustomImage={stampCustomImage}
             />
           </Canvas>
         </div>
@@ -1614,6 +1719,35 @@ const undoLastStamp = () => {
                   onChange={(e) => setStampColor(e.target.value)}
                   style={{ width: 40, height: 36 }}
                 />
+              </div>
+            </div>
+
+            {/* 邊框切換 */}
+            <div className="tool-group">
+              <label>印章樣式</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setStampBorder(true)}
+                  style={{
+                    border: "none", borderRadius: 999, padding: "10px 16px",
+                    background: stampBorder ? "#8b5734" : "#efe0d1",
+                    color: stampBorder ? "white" : "#5b3924",
+                    fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  ◎ 有邊框
+                </button>
+                <button
+                  onClick={() => setStampBorder(false)}
+                  style={{
+                    border: "none", borderRadius: 999, padding: "10px 16px",
+                    background: !stampBorder ? "#8b5734" : "#efe0d1",
+                    color: !stampBorder ? "white" : "#5b3924",
+                    fontWeight: "bold", cursor: "pointer"
+                  }}
+                >
+                  ✦ 無邊框
+                </button>
               </div>
             </div>
 
