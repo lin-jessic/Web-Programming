@@ -1912,7 +1912,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
     saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
   };
 
-  const addGeneralComment = () => {
+const addGeneralComment = () => {
     if (!commentText.trim()) {
       alert("請先輸入留言內容！");
       return;
@@ -1921,7 +1921,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
     const item = {
       id: makeId(),
       name: currentUser.nickname,
-      avatar: currentUser.avatar,
+      avatar: currentUser.avatar || "🌷",
       text: commentText,
       createdAt: new Date().toLocaleString()
     };
@@ -2076,9 +2076,17 @@ function CommunityWallPage({ refreshKey, currentUser }) {
             {comments.map((item) => (
               <div className="comment-item" key={item.id}>
                 <div>
-                  <strong>
-                    {item.avatar} {item.name}
-                  </strong>
+                  {/* 💡 修正：增加頭像外觀判定機制，讓照片與 Emoji 都能工整顯示 */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                    <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center", width: "24px", height: "24px", minWidth: "24px", fontSize: "14px", background: "#f4e5d6", borderRadius: "50%" }}>
+                      {item.avatar && (item.avatar.startsWith("data:image") || item.avatar.startsWith("blob:")) ? (
+                        <img src={item.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                      ) : (
+                        item.avatar || "🌷"
+                      )}
+                    </span>
+                    <strong style={{ color: "#5b3924" }}>{item.name}</strong>
+                  </div>
                   <small>{item.createdAt}</small>
                 </div>
                 <p>{item.text}</p>
@@ -2672,4 +2680,3 @@ function App() {
 }
 
 export default App;
-
