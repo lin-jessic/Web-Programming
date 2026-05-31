@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import ThreeDeskPostcard from "./ThreeDeskPostcard.jsx";
-import ThreePhotoBoothStudio from "./ThreePhotoBoothStudio.jsx";
+import UploadBooth from "./UploadBooth.jsx";
+import CameraBooth from "./CameraBooth.jsx";
+import BoothChoose from "./BoothChoose.jsx";
 import "./App.css";
 
 const STORAGE_KEYS = {
@@ -2537,7 +2539,65 @@ function App() {
       </header>
 
       {activeTab === "postcard" && <ThreeDeskPostcard onSaveArtwork={saveArtwork} />}
-      {activeTab === "photobooth" && <ThreePhotoBoothStudio onSaveArtwork={saveArtwork} />}
+        {/* ==================== PHOTOBOOTH 分頁開始 ==================== */}
+      {activeTab === "photobooth" && (
+        <div className="photobooth-tab-container" style={{ maxWidth: "1280px", margin: "0 auto", padding: "0 20px" }}>
+          
+          {/* 安全初始化子選單狀態變數，確保點擊後能被 React 正常追蹤重新渲染 */}
+          {(() => {
+            if (window.currentBoothMode === undefined) {
+              window.currentBoothMode = "menu";
+            }
+          })()}
+
+          {/* 如果不在主選單(menu)，就在左上角顯示一個大地色系返回按鈕 */}
+          {window.currentBoothMode !== "menu" && (
+            <button 
+              onClick={() => {
+                window.currentBoothMode = "menu";
+                setRefreshKey(prev => prev + 1); // 強制 React 刷新畫面回選單
+              }}
+              style={{
+                background: "#6D4328",
+                color: "white",
+                border: "none",
+                padding: "10px 20px",
+                borderRadius: "10px",
+                cursor: "pointer",
+                marginBottom: "20px",
+                fontWeight: "bold",
+                boxShadow: "0 4px 10px rgba(109,67,40,0.15)",
+                fontFamily: "inherit"
+              }}
+            >
+              ⬅ 返回 Booth Choose 選單
+            </button>
+          )}
+
+          {/* 子路由判斷 A：顯示獨立出來的 Booth Choose 選單畫面 */}
+          {window.currentBoothMode === "menu" && (
+            <BoothChoose 
+              onSelectMode={(mode) => {
+                window.currentBoothMode = mode;
+                setRefreshKey(prev => prev + 1); // 使用者點選後，切換模式並重新整理
+              }} 
+            />
+          )}
+
+          {/* 子路由判斷 B：進入 3D 上傳機台 */}
+          {window.currentBoothMode === "upload" && (
+            <UploadBooth onSaveArtwork={saveArtwork} />
+          )}
+
+          {/* 子路由判斷 C：進入現場鏡頭拍貼機 */}
+          {window.currentBoothMode === "camera" && (
+            <CameraBooth onSaveArtwork={saveArtwork} />
+          )}
+
+        </div>
+      )}
+      {/* ==================== PHOTOBOOTH 分頁結束 ==================== */}
+
       {activeTab === "storage" && <MyStoragePage refreshKey={refreshKey} currentUser={currentUser} onShareToWall={shareToWall} />}
       {activeTab === "community" && <CommunityWallPage refreshKey={refreshKey} currentUser={currentUser} />}
 
