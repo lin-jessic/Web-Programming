@@ -1684,7 +1684,14 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
           <div className="wall-comment-list">
             {comments.map((comment) => (
               <div className="wall-comment-item" key={comment.id}>
-                <span>{comment.avatar}</span>
+                {/* 💡 修正：加上照片判定機制，防止自訂大頭貼變成網頁純文字亂碼 */}
+                <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center", width: "24px", height: "24px", minWidth: "24px", fontSize: "14px" }}>
+                  {comment.avatar && (comment.avatar.startsWith("data:image") || comment.avatar.startsWith("blob:")) ? (
+                    <img src={comment.avatar} alt="comment avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                  ) : (
+                    comment.avatar || "🌷"
+                  )}
+                </span>
                 <div>
                   <strong>{comment.name}</strong>
                   <p>{comment.text}</p>
@@ -2259,7 +2266,14 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 ) : (
                   comments.map((comment) => (
                     <div className="wall-comment-item" key={comment.id}>
-                      <span>{comment.avatar}</span>
+                      {/* 💡 修正：加上照片判定機制，防止大頭貼圖片代碼變成網頁亂碼 */}
+                      <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center", width: "24px", height: "24px", minWidth: "24px", fontSize: "14px" }}>
+                        {comment.avatar && (comment.avatar.startsWith("data:image") || comment.avatar.startsWith("blob:")) ? (
+                          <img src={comment.avatar} alt="comment avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                        ) : (
+                          comment.avatar || "🌷"
+                        )}
+                      </span>
                       <div>
                         <strong>{comment.name}</strong>
                         <p>{comment.text}</p>
@@ -2574,9 +2588,9 @@ function App() {
               {/* 控制按鈕區 */}
               <div className="avatar-action-row">
                 {cameraStream ? (
-                  <button className="avatar-shoot-btn" onClick={captureCameraImage}>📸 按下快門拍攝</button>
+                  <button className="avatar-shoot-btn" onClick={captureCameraImage}>📸 </button>
                 ) : (
-                  <button className="avatar-camera-on-btn" onClick={startCamera}>📹 開啟視訊相機自拍</button>
+                  <button className="avatar-camera-on-btn" onClick={startCamera}>📹 camera</button>
                 )}
               </div>
 
@@ -2584,7 +2598,7 @@ function App() {
 
               <div className="avatar-upload-field">
                 <label className="upload-btn avatar-file-label">
-                  📁 從電腦上傳照片
+                  📁 upload image
                   <input type="file" accept="image/*" onChange={handleAvatarFileUpload} style={{ display: "none" }} />
                 </label>
               </div>
