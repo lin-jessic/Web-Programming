@@ -2539,7 +2539,7 @@ function App() {
       </header>
 
       {activeTab === "postcard" && <ThreeDeskPostcard onSaveArtwork={saveArtwork} />}
-        {/* ==================== PHOTOBOOTH 分頁開始 ==================== */}
+         {/* ==================== PHOTOBOOTH 分頁開始 ==================== */}
       {activeTab === "photobooth" && (
         <div className="photobooth-tab-container" style={{ maxWidth: "1280px", margin: "0 auto", padding: "0 20px" }}>
           
@@ -2597,6 +2597,7 @@ function App() {
         </div>
       )}
       {/* ==================== PHOTOBOOTH 分頁結束 ==================== */}
+
 
       {activeTab === "storage" && <MyStoragePage refreshKey={refreshKey} currentUser={currentUser} onShareToWall={shareToWall} />}
       {activeTab === "community" && <CommunityWallPage refreshKey={refreshKey} currentUser={currentUser} />}
@@ -2671,3 +2672,4 @@ function App() {
 }
 
 export default App;
+
