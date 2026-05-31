@@ -2608,8 +2608,8 @@ function App() {
           <div className="output-preview-modal avatar-change-modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
             <div className="output-preview-header">
               <div>
-                <h3>🖼️ 修改個人頭像</h3>
-                <p>更換你的專屬社交頭貼</p>
+                <h3>Change profile picture</h3>
+                <p>Change your unique social avatar</p>
               </div>
               <button className="output-close-btn" onClick={() => { stopCamera(); setAvatarModalOpen(false); }}>×</button>
             </div>
