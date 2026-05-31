@@ -1368,7 +1368,13 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
   return (
     <div className="page-card">
       <div className="profile-storage-card">
-        <div className="profile-avatar">{currentUser.avatar}</div>
+        <div className="profile-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center" }}>
+          {currentUser.avatar && (currentUser.avatar.startsWith("data:image") || currentUser.avatar.startsWith("blob:")) ? (
+            <img src={currentUser.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+          ) : (
+            currentUser.avatar || "🌷"
+          )}
+        </div>
         <div>
           <h3>{currentUser.nickname}</h3>
           <p>{currentUser.bio}</p>
@@ -1577,18 +1583,29 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
   );
 }
 
-function WallPostCard({ item, index, currentUser, onLike, onComment, onOpen }) {
+function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, onEdit, onComment, onOpen }) {
   const [commentInput, setCommentInput] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editCaption, setEditCaption] = useState(item.caption);
 
   const likes = item.likes || [];
   const comments = item.comments || [];
+  const favorites = item.favorites || [];
+  
   const liked = likes.includes(currentUser.gmail);
+  const favorited = favorites.includes(currentUser.gmail);
+  const isOwner = item.gmail === currentUser.gmail;
 
   const sendComment = () => {
     if (!commentInput.trim()) return;
-
     onComment(item.id, commentInput);
     setCommentInput("");
+  };
+
+  const handleSaveEdit = () => {
+    if (!editCaption.trim()) return;
+    onEdit(item.id, editCaption);
+    setIsEditing(false);
   };
 
   return (
@@ -1604,33 +1621,51 @@ function WallPostCard({ item, index, currentUser, onLike, onComment, onOpen }) {
       </div>
 
       <div className="redbook-body">
-        <div className="redbook-user-row">
-          <span className="redbook-avatar">{item.avatar || "🌷"}</span>
-          <div>
-            <strong>{item.name}</strong>
-            <small>{item.gmail}</small>
+        <div className="redbook-user-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center" }}>
+            {item.avatar && (item.avatar.startsWith("data:image") || item.avatar.startsWith("blob:")) ? (
+              <img src={item.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+            ) : (
+              item.avatar || "🌷"
+            )}
+          </span>
+            <div>
+              <strong>{item.name}</strong>
+              <small>{item.gmail}</small>
+            </div>
           </div>
+          {isOwner && (
+            <div className="post-owner-actions" style={{ marginLeft: "auto", display: "flex", gap: "4px" }}>
+              <button className="edit-post-btn" onClick={() => { setIsEditing(!isEditing); setEditCaption(item.caption); }}>✏️ 編輯</button>
+              <button className="delete-post-btn" onClick={() => { if(confirm("確定要刪除這篇貼文嗎？")) onDelete(item.id); }}>🗑️ 刪除</button>
+            </div>
+          )}
         </div>
 
-        <p className="redbook-caption">{item.caption}</p>
+        {isEditing ? (
+          <div className="edit-post-box" style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
+            <textarea value={editCaption} onChange={(e) => setEditCaption(e.target.value)} style={{ width: "100%", padding: "6px" }} />
+            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+              <button className="save-edit-btn" onClick={handleSaveEdit}>儲存</button>
+              <button className="cancel-edit-btn" onClick={() => setIsEditing(false)}>取消</button>
+            </div>
+          </div>
+        ) : (
+          <p className="redbook-caption">{item.caption}</p>
+        )}
 
         <div className="redbook-actions">
-          <button
-            className={liked ? "liked" : ""}
-            onClick={() => onLike(item.id)}
-          >
+          <button className={`like-btn ${liked ? "liked" : ""}`} onClick={() => onLike(item.id)}>
             {liked ? "♥ Liked" : "♡ Like"} · {likes.length}
           </button>
+          
+          {/* 新增收藏按鈕 */}
+          <button className={`favorite-btn ${favorited ? "favorited" : ""}`} onClick={() => onFavorite(item.id)}>
+            {favorited ? "★ 已收藏" : "☆ 收藏"} · {favorites.length}
+          </button>
 
-          <button
-            onClick={onOpen}
-            style={{
-              border: "none", background: "none",
-              cursor: "pointer", fontWeight: "bold",
-              color: "#8a674d", padding: "4px 8px",
-              borderRadius: 999
-            }}
-          >
+          <button className="comment-toggle-btn" onClick={onOpen}>
             💬 {comments.length} 則留言
           </button>
         </div>
@@ -1677,9 +1712,11 @@ function CommunityWallPage({ refreshKey, currentUser }) {
 
   const [commentText, setCommentText] = useState("");
 
-  const [shareModalItem, setShareModalItem] = useState(null); // 正在分享的作品
+  const [shareModalItem, setShareModalItem] = useState(null); 
   const [shareCaption, setShareCaption] = useState("");
-  const [openPostId, setOpenPostId] = useState(null); // 點開的貼文 id
+  const [openPostId, setOpenPostId] = useState(null); 
+  
+  const [wallFilter, setWallFilter] = useState("all");
 
   const loadWall = async () => {
     setGallery(await attachImages(getList(STORAGE_KEYS.gallery)));
@@ -1764,7 +1801,8 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       createdAt: new Date().toLocaleString(),
       image,
       likes: [],
-      comments: []
+      comments: [],
+      favorites: []
     };
 
     const next = [item, ...gallery];
@@ -1792,6 +1830,46 @@ function CommunityWallPage({ refreshKey, currentUser }) {
           ? likes.filter((gmail) => gmail !== currentUser.gmail)
           : [...likes, currentUser.gmail]
       };
+    });
+
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+  };
+
+  const toggleFavorite = (postId) => {
+    const next = gallery.map((item) => {
+      if (item.id !== postId) return item;
+
+      const favorites = item.favorites || [];
+      const alreadyFavorited = favorites.includes(currentUser.gmail);
+
+      return {
+        ...item,
+        favorites: alreadyFavorited
+          ? favorites.filter((gmail) => gmail !== currentUser.gmail)
+          : [...favorites, currentUser.gmail]
+      };
+    });
+
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+  };
+
+  const deleteWallPost = async (postId) => {
+    const target = gallery.find((item) => item.id === postId);
+    if (target?.imageKey) {
+      await deleteImageFromDB(target.imageKey);
+    }
+    const next = gallery.filter((item) => item.id !== postId);
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+    if (openPostId === postId) setOpenPostId(null);
+  };
+
+  const editWallPost = (postId, newCaption) => {
+    const next = gallery.map((item) => {
+      if (item.id !== postId) return item;
+      return { ...item, caption: newCaption };
     });
 
     setGallery(next);
@@ -1858,18 +1936,31 @@ function CommunityWallPage({ refreshKey, currentUser }) {
     setComments([]);
   };
 
+  const filteredGallery = gallery.filter((item) => {
+    if (wallFilter === "mine") return item.gmail === currentUser.gmail;
+    if (wallFilter === "fav") return (item.favorites || []).includes(currentUser.gmail);
+    return true;
+  });
+
   return (
     <div className="community-layout">
       <section className="page-card">
         <div className="page-title-row">
           <div>
             <h2>Community Wall</h2>
-            <p>像小紅書一樣分享作品、按讚與留言。</p>
+            <p>分享作品、按讚、收藏與留言。</p>
           </div>
 
           <button className="danger-soft-btn" onClick={clearWall}>
             Clear Wall
           </button>
+        </div>
+
+        {/* 社交牆篩選切換按鈕組 */}
+        <div className="storage-filters" style={{ marginBottom: "16px", display: "flex", gap: "8px" }}>
+          <button className={wallFilter === "all" ? "active" : ""} onClick={() => setWallFilter("all")}>全部作品</button>
+          <button className={wallFilter === "mine" ? "active" : ""} onClick={() => setWallFilter("mine")}>我發布的</button>
+          <button className={wallFilter === "fav" ? "active" : ""} onClick={() => setWallFilter("fav")}>我的收藏 ✨</button>
         </div>
 
         <div className="wall-form">
@@ -1925,19 +2016,22 @@ function CommunityWallPage({ refreshKey, currentUser }) {
           </div>
         )}
 
-        {gallery.length === 0 ? (
-          <div className="empty-storage">目前照片牆還沒有作品。</div>
+        {filteredGallery.length === 0 ? (
+          <div className="empty-storage">目前沒有符合篩選條件的作品。</div>
         ) : (
           <div className="pinterest-wall">
-            {gallery.map((item, index) => (
+            {filteredGallery.map((item, index) => (
               <WallPostCard
                 key={item.id}
                 item={item}
                 index={index}
                 currentUser={currentUser}
                 onLike={toggleLike}
+                onFavorite={toggleFavorite}
+                onDelete={deleteWallPost}
+                onEdit={editWallPost}
                 onComment={addWallComment}
-                onOpen={() => setOpenPostId(item.id)}   // ← 加這行
+                onOpen={() => setOpenPostId(item.id)}   
               />
             ))}
           </div>
@@ -1984,6 +2078,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
           </div>
         )}
       </section>
+      
       {/* ── 分享預覽 Modal ── */}
       {shareModalItem && (
         <div
@@ -2008,7 +2103,6 @@ function CommunityWallPage({ refreshKey, currentUser }) {
               </button>
             </div>
 
-            {/* 預覽圖 */}
             <div style={{
               borderRadius: 18,
               overflow: "hidden",
@@ -2026,7 +2120,6 @@ function CommunityWallPage({ refreshKey, currentUser }) {
               />
             </div>
 
-            {/* 發布者資訊 */}
             <div style={{
               display: "flex", alignItems: "center", gap: 10,
               marginBottom: 16, padding: "10px 14px",
@@ -2039,7 +2132,6 @@ function CommunityWallPage({ refreshKey, currentUser }) {
               </div>
             </div>
 
-            {/* 編輯說明文字 */}
             <div className="tool-group">
               <label>發布文字</label>
               <textarea
@@ -2065,13 +2157,16 @@ function CommunityWallPage({ refreshKey, currentUser }) {
         </div>
       )}
 
-      {/* ── 貼文留言 Modal ── */}
+      {/* ── 貼文留言擴展 Modal ── */}
       {openPostId && (() => {
         const post = gallery.find((item) => item.id === openPostId);
         if (!post) return null;
         const likes = post.likes || [];
         const comments = post.comments || [];
+        const favorites = post.favorites || [];
         const liked = likes.includes(currentUser.gmail);
+        const favorited = favorites.includes(currentUser.gmail);
+        const isOwner = post.gmail === currentUser.gmail;
 
         return (
           <div
@@ -2085,12 +2180,29 @@ function CommunityWallPage({ refreshKey, currentUser }) {
             >
               <div className="output-preview-header">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 26 }}>{post.avatar || "🌷"}</span>
+                  <span style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#f4e5d6", display: "grid", placeItems: "center", fontTop: "20px", overflow: "hidden" }}>
+                  {post.avatar && (post.avatar.startsWith("data:image") || post.avatar.startsWith("blob:")) ? (
+                    <img src={post.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                  ) : (
+                    post.avatar || "🌷"
+                  )}
+                </span>
                   <div>
                     <div style={{ fontWeight: "bold", color: "#5b3924" }}>{post.name}</div>
                     <div style={{ fontSize: 12, color: "#96755c" }}>{post.createdAt}</div>
                   </div>
                 </div>
+                
+                {isOwner && (
+                  <button 
+                    className="modal-delete-post-btn"
+                    onClick={() => { if(confirm("確定要刪除這篇貼文嗎？")) deleteWallPost(post.id); }}
+                    style={{ marginLeft: "auto", marginRight: "12px" }}
+                  >
+                    🗑️ 刪除貼文
+                  </button>
+                )}
+                
                 <button
                   className="output-close-btn"
                   onClick={() => setOpenPostId(null)}
@@ -2099,7 +2211,6 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 </button>
               </div>
 
-              {/* 圖片 */}
               <div style={{
                 borderRadius: 18, overflow: "hidden",
                 marginBottom: 16, background: "#f4e5d6",
@@ -2113,28 +2224,26 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 />
               </div>
 
-              {/* 說明文字 */}
               <p style={{ margin: "0 0 14px 0", color: "#6b4a36", lineHeight: 1.6, fontSize: 16 }}>
                 {post.caption}
               </p>
 
-              {/* 按讚 */}
-              <div style={{ marginBottom: 18 }}>
+              <div style={{ marginBottom: 18, display: "flex", gap: "8px" }}>
                 <button
-                  className={liked ? "liked" : ""}
-                  style={{
-                    border: "none", borderRadius: 999,
-                    background: liked ? "#b86b5b" : "#ead7c4",
-                    color: liked ? "white" : "#6a3d24",
-                    padding: "8px 16px", fontWeight: "bold", cursor: "pointer"
-                  }}
+                  className={`modal-like-btn ${liked ? "liked" : ""}`}
                   onClick={() => toggleLike(post.id)}
                 >
                   {liked ? "♥ Liked" : "♡ Like"} · {likes.length}
                 </button>
+                
+                <button
+                  className={`modal-fav-btn ${favorited ? "favorited" : ""}`}
+                  onClick={() => toggleFavorite(post.id)}
+                >
+                  {favorited ? "★ 已收藏" : "☆ 收藏"} · {favorites.length}
+                </button>
               </div>
 
-              {/* 留言列表 */}
               <div style={{
                 maxHeight: 240, overflowY: "auto",
                 display: "grid", gap: 10, marginBottom: 16
@@ -2161,7 +2270,6 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 )}
               </div>
 
-              {/* 新增留言 */}
               <div className="wall-comment-box">
                 <input
                   type="text"
@@ -2171,7 +2279,6 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                     if (e.key === "Enter" && e.target.value.trim()) {
                       addWallComment(post.id, e.target.value.trim());
                       e.target.value = "";
-                      // 強制重新取得最新留言
                       setOpenPostId((prev) => prev);
                     }
                   }}
@@ -2197,23 +2304,25 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
 
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const videoRef = useRef(null);
+
   useEffect(() => {
     const init = async () => {
-      try {
-        await migrateStoredImagesToIndexedDB();
-      } catch (error) {
-        console.warn("Image migration failed.", error);
-      }
-
+      try { await migrateStoredImagesToIndexedDB(); } catch (error) { console.warn("Image migration failed.", error); }
       const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
-
-      if (savedUser) {
-        setCurrentUser(JSON.parse(savedUser));
+      if (savedUser) { 
+        const parsedUser = JSON.parse(savedUser);
+        if (parsedUser.avatarKey) {
+          const customImg = await getImageFromDB(parsedUser.avatarKey);
+          if (customImg) parsedUser.avatar = customImg;
+        }
+        setCurrentUser(parsedUser); 
       }
     };
-
     init();
-  }, []);
+  }, [refreshKey]);
 
   const logout = () => {
     localStorage.removeItem(STORAGE_KEYS.currentUser);
@@ -2221,43 +2330,131 @@ function App() {
     setActiveTab("postcard");
   };
 
+  const handleAvatarFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await updateAvatarData(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const startCamera = async () => {
+    try {
+      const constraints = {
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: "user"
+        },
+        audio: false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      setCameraStream(stream);
+
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play()
+            .then(() => console.log("相機即時預覽成功！"))
+            .catch(err => console.error("播放失敗:", err));
+        }
+      }, 50);
+
+    } catch (err) {
+      alert("無法開啟相機，請確認是否有其他程式（如 Line、Discord）正在佔用鏡頭。");
+      console.error(err);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const captureCameraImage = async () => {
+    if (!videoRef.current || !cameraStream) return;
+    
+    const video = videoRef.current;
+
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      alert("相機影像還在載入，請看到畫面後再按下快門！");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    canvas.width = size;
+    canvas.height = size;
+    
+    const ctx = canvas.getContext("2d");
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+
+    ctx.translate(size, 0);
+    ctx.scale(-1, 1);
+    
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+    
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    
+    stopCamera();
+    await updateAvatarData(dataUrl);
+  };  
+
+  const updateAvatarData = async (imageDataUrl) => {
+    try {
+      const avatarKey = `avatar_${currentUser.id}`;
+      await saveImageToDB(avatarKey, imageDataUrl);
+
+      const updatedUser = {
+        ...currentUser,
+        avatarKey: avatarKey,
+        avatar: imageDataUrl
+      };
+
+      setCurrentUser(updatedUser);
+      localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(updatedUser));
+
+      const users = getList(STORAGE_KEYS.users);
+      const nextUsers = users.map(u => u.id === currentUser.id ? { ...u, avatarKey: avatarKey } : u);
+      localStorage.setItem(STORAGE_KEYS.users, JSON.stringify(nextUsers));
+
+      setAvatarModalOpen(false);
+      setRefreshKey(prev => prev + 1);
+      alert("頭像修改成功！");
+    } catch (error) {
+      console.error(error);
+      alert("頭像儲存失敗，請重試。");
+    }
+  };
+
   const saveArtwork = async (type, item) => {
     try {
       const imageKey = item.imageKey || `art_${item.id}`;
-
-      if (item.image) {
-        await saveImageToDB(imageKey, item.image);
-      }
-
+      if (item.image) { await saveImageToDB(imageKey, item.image); }
       const itemWithOwner = {
-        ...item,
-        imageKey,
-        ownerId: currentUser?.id,
-        ownerGmail: currentUser?.gmail,
-        ownerName: currentUser?.nickname || "Guest",
-        ownerAvatar: currentUser?.avatar || "🌷"
+        ...item, imageKey, ownerId: currentUser?.id, ownerGmail: currentUser?.gmail,
+        ownerName: currentUser?.nickname || "Guest", ownerAvatar: currentUser?.avatarKey || currentUser?.avatar || "🌷"
       };
-
       delete itemWithOwner.image;
-
       let ok = false;
-
       if (type === "postcard") {
         const current = getList(STORAGE_KEYS.postcards);
         const next = [itemWithOwner, ...current];
         ok = saveList(STORAGE_KEYS.postcards, next, MAX_POSTCARDS);
       }
-
       if (type === "photobooth") {
         const current = getList(STORAGE_KEYS.photoBooths);
         const next = [itemWithOwner, ...current];
         ok = saveList(STORAGE_KEYS.photoBooths, next, MAX_PHOTOBOOTHS);
       }
-
-      if (ok) {
-        setRefreshKey((prev) => prev + 1);
-      }
-
+      if (ok) { setRefreshKey((prev) => prev + 1); }
       return ok;
     } catch (error) {
       console.error(error);
@@ -2271,42 +2468,22 @@ function App() {
     const id = makeId();
     const imageKey = `wall_${id}`;
     const imageSource = item.image || (await getImageFromDB(item.imageKey));
-
-    if (!imageSource) {
-      alert("分享失敗：找不到作品圖片。");
-      return;
-    }
-
+    if (!imageSource) { alert("分享失敗：找不到作品圖片。"); return; }
     await saveImageToDB(imageKey, imageSource);
 
     const wallItem = {
-      id,
-      imageKey,
-      userId: currentUser?.id,
-      name: currentUser?.nickname || "Guest",
-      gmail: currentUser?.gmail || "",
-      avatar: currentUser?.avatar || "🌷",
-      caption: item.caption ||
-        (item.type === "postcard"
-          ? `Shared postcard: ${item.title}`
-          : `Shared photo strip: ${item.title}`),
-      createdAt: new Date().toLocaleString(),
-      likes: [],
-      comments: []
+      id, imageKey, userId: currentUser?.id, name: currentUser?.nickname || "Guest",
+      gmail: currentUser?.gmail || "", avatar: currentUser?.avatar,
+      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : `Shared photo strip: ${item.title}`),
+      createdAt: new Date().toLocaleString(), likes: [], comments: [], favorites: []
     };
 
     const next = [wallItem, ...current];
     const ok = saveList(STORAGE_KEYS.gallery, next, MAX_GALLERY);
-
-    if (ok) {
-      setRefreshKey((prev) => prev + 1);
-      alert("已分享到 Community Wall！");
-    }
+    if (ok) { setRefreshKey((prev) => prev + 1); alert("已分享到 Community Wall！"); }
   };
 
-  if (!currentUser) {
-    return <AuthPage onLogin={setCurrentUser} />;
-  }
+  if (!currentUser) { return <AuthPage onLogin={setCurrentUser} />; }
 
   return (
     <div className="app">
@@ -2315,74 +2492,105 @@ function App() {
           <h1>Stamp Studio</h1>
           <p>Postcard + Photo Booth + Storage + Community Wall</p>
         </div>
-
         <div className="login-profile-box">
-          <div className="mini-user">
-            <span className="mini-avatar">{currentUser.avatar}</span>
+          {/* 加上 header-avatar-trigger 和 onClick 事件 */}
+          <div className="mini-user header-avatar-trigger" onClick={() => setAvatarModalOpen(true)} title="點擊更換頭像" style={{ cursor: "pointer" }}>
+            <span className="mini-avatar">
+              {currentUser.avatar && (currentUser.avatar.startsWith("data:image") || currentUser.avatar.startsWith("blob:")) ? (
+                <img src={currentUser.avatar} alt="avatar" className="header-custom-avatar-img" style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }} />
+              ) : (
+                currentUser.avatar || "🌷"
+              )}
+            </span>
             <div>
-              <strong>{currentUser.nickname}</strong>
+              <strong>{currentUser.nickname} </strong>
               <small>{currentUser.gmail}</small>
             </div>
           </div>
-
           <button className="reset-data-btn" onClick={resetLocalDemoData}>
             Reset Local Demo Data
           </button>
-
           <button className="logout-btn" onClick={logout}>
             Logout
           </button>
         </div>
-
         <div className="tab-switcher">
-          <button
-            className={activeTab === "postcard" ? "active" : ""}
-            onClick={() => setActiveTab("postcard")}
-          >
-            Postcard Studio
-          </button>
-
-          <button
-            className={activeTab === "photobooth" ? "active" : ""}
-            onClick={() => setActiveTab("photobooth")}
-          >
-            Photo Booth Studio
-          </button>
-
-          <button
-            className={activeTab === "storage" ? "active" : ""}
-            onClick={() => setActiveTab("storage")}
-          >
-            My Storage
-          </button>
-
-          <button
-            className={activeTab === "community" ? "active" : ""}
-            onClick={() => setActiveTab("community")}
-          >
-            Community Wall
-          </button>
+          <button className={activeTab === "postcard" ? "active" : ""} onClick={() => setActiveTab("postcard")}>Postcard Studio</button>
+          <button className={activeTab === "photobooth" ? "active" : ""} onClick={() => setActiveTab("photobooth")}>Photo Booth Studio</button>
+          <button className={activeTab === "storage" ? "active" : ""} onClick={() => setActiveTab("storage")}>My Storage</button>
+          <button className={activeTab === "community" ? "active" : ""} onClick={() => setActiveTab("community")}>Community Wall</button>
         </div>
       </header>
 
-      {activeTab === "postcard" && (
-        <ThreeDeskPostcard onSaveArtwork={saveArtwork} />
-      )}
+      {activeTab === "postcard" && <ThreeDeskPostcard onSaveArtwork={saveArtwork} />}
+      {activeTab === "photobooth" && <ThreePhotoBoothStudio onSaveArtwork={saveArtwork} />}
+      {activeTab === "storage" && <MyStoragePage refreshKey={refreshKey} currentUser={currentUser} onShareToWall={shareToWall} />}
+      {activeTab === "community" && <CommunityWallPage refreshKey={refreshKey} currentUser={currentUser} />}
 
-      {activeTab === "photobooth" && (
-        <ThreePhotoBoothStudio onSaveArtwork={saveArtwork} />
-      )}
+      {/* ── 新增：更換頭像專用彈出視窗 (Modal) ── */}
+      {avatarModalOpen && (
+        <div className="output-preview-overlay" onClick={() => { stopCamera(); setAvatarModalOpen(false); }}>
+          <div className="output-preview-modal avatar-change-modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+            <div className="output-preview-header">
+              <div>
+                <h3>🖼️ 修改個人頭像</h3>
+                <p>更換你的專屬社交頭貼</p>
+              </div>
+              <button className="output-close-btn" onClick={() => { stopCamera(); setAvatarModalOpen(false); }}>×</button>
+            </div>
 
-      {activeTab === "storage" && (
-        <MyStoragePage
-          refreshKey={refreshKey}
-          currentUser={currentUser}
-          onShareToWall={shareToWall}
-        />
-      )}
+            <div className="avatar-modal-body">
+              {/* 目前頭像/相機預覽區域 */}
+              <div className="avatar-preview-box" style={{ background: "transparent", position: "relative" }}>
+                {cameraStream ? (
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className="avatar-video-preview" 
+                    style={{ 
+                      width: "100%", 
+                      height: "100%", 
+                      objectFit: "cover", 
+                      transform: "scaleX(-1)", 
+                      background: "black",
+                      display: "block",
+                      position: "absolute",
+                      zIndex: 99999
+                    }} 
+                  />
+                ) : (
+                  <div className="avatar-current-large">
+                    {currentUser.avatar.startsWith("data:image") ? (
+                      <img src={currentUser.avatar} alt="current large avatar" />
+                    ) : (
+                      <span>{currentUser.avatar}</span>
+                    )}
+                  </div>
+                )}
+              </div>
 
-      {activeTab === "community" && (
-        <CommunityWallPage refreshKey={refreshKey} currentUser={currentUser} />
+              {/* 控制按鈕區 */}
+              <div className="avatar-action-row">
+                {cameraStream ? (
+                  <button className="avatar-shoot-btn" onClick={captureCameraImage}>📸 按下快門拍攝</button>
+                ) : (
+                  <button className="avatar-camera-on-btn" onClick={startCamera}>📹 開啟視訊相機自拍</button>
+                )}
+              </div>
+
+              <div className="avatar-modal-divider">或</div>
+
+              <div className="avatar-upload-field">
+                <label className="upload-btn avatar-file-label">
+                  📁 從電腦上傳照片
+                  <input type="file" accept="image/*" onChange={handleAvatarFileUpload} style={{ display: "none" }} />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
