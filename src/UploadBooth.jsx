@@ -583,7 +583,7 @@ function ThreePhotoBoothScene({
   );
 }
 
-function ThreePhotoBoothStudio({ onSaveArtwork }) {
+function UploadBooth({ onSaveArtwork }) {
   const [layoutCount, setLayoutCount] = useState(4);
   const [photoTitle, setPhotoTitle] = useState("PHOTO BOOTH");
   const [photoSubtitle, setPhotoSubtitle] = useState("Best Memory");
@@ -977,4 +977,4 @@ function ThreePhotoBoothStudio({ onSaveArtwork }) {
   );
 }
 
-export default ThreePhotoBoothStudio;
+export default UploadBooth;
