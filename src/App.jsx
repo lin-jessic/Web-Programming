@@ -1756,16 +1756,16 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
 
         <div className="redbook-actions">
           <button className={`like-btn ${liked ? "liked" : ""}`} onClick={() => onLike(item.id)}>
-            {liked ? "♥ Liked" : "♡ Like"} · {likes.length}
+            {liked ? "♥ " : "♡ "} · {likes.length}
           </button>
           
           {/* 新增收藏按鈕 */}
           <button className={`favorite-btn ${favorited ? "favorited" : ""}`} onClick={() => onFavorite(item.id)}>
-            {favorited ? "★ 已收藏" : "☆ 收藏"} · {favorites.length}
+            {favorited ? "★ " : "☆ "} · {favorites.length}
           </button>
 
           <button className="comment-toggle-btn" onClick={onOpen}>
-            💬 {commentTotal} 留言
+            💬 {commentTotal} 
           </button>
         </div>
 
@@ -2513,14 +2513,14 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                   className={`modal-like-btn ${liked ? "liked" : ""}`}
                   onClick={() => toggleLike(post.id)}
                 >
-                  {liked ? "♥ Liked" : "♡ Like"} · {likes.length}
+                  {liked ? "♥ " : "♡ "} · {likes.length}
                 </button>
                 
                 <button
                   className={`modal-fav-btn ${favorited ? "favorited" : ""}`}
                   onClick={() => toggleFavorite(post.id)}
                 >
-                  {favorited ? "★ 已收藏" : "☆ 收藏"} · {favorites.length}
+                  {favorited ? "★ " : "☆ "} · {favorites.length}
                 </button>
               </div>
 
