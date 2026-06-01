@@ -1298,7 +1298,8 @@ select:focus {
 
 .redbook-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 8px;
   align-items: center;
   margin-bottom: 14px;
   color: #8a674d;
