@@ -3,7 +3,8 @@ import html2canvas from "html2canvas";
 
 const STORAGE_KEYS = {
   postcards: "stampStudio_savedPostcards",
-  photoBooths: "stampStudio_savedPhotoBooths"
+  photoBooths: "stampStudio_savedPhotoBooths",
+  scrapbooks: "lifeTracker_savedScrapbooks"
 };
 
 const IMAGE_DB_NAME = "stampStudioImageDB";
@@ -11,6 +12,37 @@ const IMAGE_STORE_NAME = "images";
 
 const CANVAS_W = 800;
 const CANVAS_H = 1100;
+
+// Keep the visible canvas under the center column width while preserving real aspect ratios.
+const canvasPresets = {
+  phone: { label: "Phone 手機 9:16", width: 450, height: 800 },
+  tablet: { label: "Tablet 平板 3:4", width: 600, height: 800 },
+  a4: { label: "A4 紙張 1:√2", width: 760, height: 1075 },
+  b5: { label: "B5 紙張 1:√2", width: 710, height: 1004 },
+  square: { label: "Square 方形 1:1", width: 820, height: 820 }
+};
+
+function getCanvasSize(preset, orientation) {
+  const picked = canvasPresets[preset] || canvasPresets.a4;
+  let w = Number(picked.width || CANVAS_W);
+  let h = Number(picked.height || CANVAS_H);
+  if (orientation === "landscape") [w, h] = [h, w];
+
+  // Keep every preset at the correct visual ratio while fitting the center column.
+  const maxW = 660;
+  const maxH = 730;
+  const scale = Math.min(maxW / w, maxH / h, 1);
+  return { width: Math.round(w * scale), height: Math.round(h * scale) };
+}
+
+function Bi({ en, zh }) {
+  return (
+    <span className="sp-bi">
+      <span>{en}</span>
+      <span>{zh}</span>
+    </span>
+  );
+}
 
 const stylePresets = {
   vintage: {
@@ -215,9 +247,8 @@ function makeMonthlyCells(year, month) {
   for (let i = 0; i < startBlank; i += 1) cells.push(null);
   for (let d = 1; d <= daysInMonth; d += 1) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
-  while (cells.length < 35) cells.push(null);
-
-  return cells;
+  while (cells.length < 42) cells.push(null);
+  return cells.slice(0, 42);
 }
 
 function MonthlyTemplate({ year, month, theme, styleName }) {
@@ -367,7 +398,6 @@ function ColorOpacityField({ label, color, alpha = 1, fallback = "#8a6b50", onCo
     <div className="sp-color-field">
       <div className="sp-color-head">
         <label>{label}</label>
-        <span className="sp-color-swatch" style={{ background: colorWithAlpha(safe, alpha, fallback) }} />
       </div>
       <input type="color" value={safe} onChange={(e) => onColorChange(e.target.value)} />
       <label className="sp-mini-label">透明度 {percent}%</label>
@@ -436,7 +466,7 @@ function makeDrawingPath(points = []) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
 
-function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, onCropPointerDown, drawingMode, eraserMode, onEraseObject }) {
+function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, onCropPointerDown, drawingMode, eraserMode, onEraseObject, canvasW = CANVAS_W, canvasH = CANVAS_H }) {
   const baseStyle = {
     left: item.x,
     top: item.y,
@@ -463,9 +493,11 @@ function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, 
         onPointerDown(e, item.id);
       }}
       onClick={(e) => {
+        e.preventDefault();
         e.stopPropagation();
         onSelect(item.id);
       }}
+      onDragStart={(e) => e.preventDefault()}
     >
       {item.type === "text" && (
         <div
@@ -610,7 +642,7 @@ function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, 
       )}
 
       {item.type === "drawing" && (
-        <svg className="sp-drawing-layer" viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} preserveAspectRatio="none">
+        <svg className="sp-drawing-layer" viewBox={`0 0 ${canvasW} ${canvasH}`} preserveAspectRatio="none">
           <path
             d={makeDrawingPath(item.points)}
             style={brushPathStyle(item)}
@@ -629,20 +661,26 @@ function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, 
   );
 }
 
-export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
+export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArtwork }) {
   const canvasRef = useRef(null);
   const dragRef = useRef(null);
   const resizeRef = useRef(null);
   const cropDragRef = useRef(null);
   const drawRef = useRef(null);
+  const canvasSizeRef = useRef({ width: CANVAS_W, height: CANVAS_H });
 
   const today = new Date();
   const [styleName, setStyleName] = useState("vintage");
   const [templateType, setTemplateType] = useState("monthly");
+  const [lastFixedTemplate, setLastFixedTemplate] = useState("monthly");
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [dateValue, setDateValue] = useState(toDateInputValue(today));
   const [uploadedTemplate, setUploadedTemplate] = useState(null);
+  const [canvasPreset, setCanvasPreset] = useState("a4");
+  const [orientation, setOrientation] = useState("portrait");
+  const [activeToolPanel, setActiveToolPanel] = useState("theme");
+  const [activeSettingsPanel, setActiveSettingsPanel] = useState("material");
 
   const [items, setItems] = useState([]);
   const [history, setHistory] = useState([]);
@@ -652,6 +690,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
   const [selectedId, setSelectedId] = useState(null);
   const [savedWorks, setSavedWorks] = useState([]);
   const [worksOpen, setWorksOpen] = useState(false);
+  const [worksFilter, setWorksFilter] = useState("all");
   const [downloading, setDownloading] = useState(false);
   const [drawingMode, setDrawingMode] = useState(false);
   const [brushColor, setBrushColor] = useState("#6a3d24");
@@ -661,17 +700,63 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
   const [eraserMode, setEraserMode] = useState("none");
 
   const theme = stylePresets[styleName];
+  const canvasSize = getCanvasSize(canvasPreset, orientation);
   const selectedItem = items.find((item) => item.id === selectedId) || null;
+  const selectedName = selectedItem ? ({ text: "Text", sticker: "Sticker", tape: "Washi Tape", note: "Sticky Note", polaroid: "Polaroid", image: "Image", box: "Template Box", drawing: "Drawing" }[selectedItem.type] || selectedItem.type) : "Nothing selected";
+  const activeEditableTemplate = items.find((item) => item.templateElement)?.templateSource || null;
+
+  const changeToolPanel = (panel) => {
+    setActiveToolPanel(panel);
+    if (panel === "draw") {
+      setDrawingMode(true);
+    } else {
+      setDrawingMode(false);
+      setEraserMode("none");
+      drawRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const previous = canvasSizeRef.current || canvasSize;
+    if (
+      previous.width &&
+      previous.height &&
+      (previous.width !== canvasSize.width || previous.height !== canvasSize.height)
+    ) {
+      const scaleX = canvasSize.width / previous.width;
+      const scaleY = canvasSize.height / previous.height;
+      setItems((prev) =>
+        prev.map((item) => {
+          const next = {
+            ...item,
+            x: Math.round((item.x || 0) * scaleX),
+            y: Math.round((item.y || 0) * scaleY),
+            width: Math.max(20, Math.round((item.width || 20) * scaleX)),
+            height: Math.max(20, Math.round((item.height || 20) * scaleY))
+          };
+          if (item.type === "drawing" && Array.isArray(item.points)) {
+            next.points = item.points.map((point) => ({
+              x: Math.round((point.x || 0) * scaleX),
+              y: Math.round((point.y || 0) * scaleY)
+            }));
+          }
+          return next;
+        })
+      );
+    }
+    canvasSizeRef.current = canvasSize;
+  }, [canvasSize.width, canvasSize.height]);
 
   const getCanvasInfo = (event) => {
     if (!canvasRef.current) return null;
     const rect = canvasRef.current.getBoundingClientRect();
+    const currentSize = canvasSizeRef.current || { width: CANVAS_W, height: CANVAS_H };
     return {
       rect,
-      scaleX: CANVAS_W / rect.width,
-      scaleY: CANVAS_H / rect.height,
-      x: (event.clientX - rect.left) * (CANVAS_W / rect.width),
-      y: (event.clientY - rect.top) * (CANVAS_H / rect.height)
+      scaleX: currentSize.width / rect.width,
+      scaleY: currentSize.height / rect.height,
+      x: (event.clientX - rect.left) * (currentSize.width / rect.width),
+      y: (event.clientY - rect.top) * (currentSize.height / rect.height)
     };
   };
 
@@ -732,8 +817,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
         const info = getCanvasInfo(e);
         if (!info) return;
         const point = {
-          x: Math.max(0, Math.min(CANVAS_W, Math.round(info.x))),
-          y: Math.max(0, Math.min(CANVAS_H, Math.round(info.y)))
+          x: Math.max(0, Math.min(canvasSizeRef.current.width, Math.round(info.x))),
+          y: Math.max(0, Math.min(canvasSizeRef.current.height, Math.round(info.y)))
         };
 
         setItems((prev) =>
@@ -777,8 +862,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
             if (item.id !== id) return item;
             const minW = item.type === "tape" ? 90 : 60;
             const minH = item.type === "tape" ? 28 : 50;
-            const nextWidth = Math.max(minW, Math.min(CANVAS_W - item.x, startWidth + dx));
-            const nextHeight = Math.max(minH, Math.min(CANVAS_H - item.y, startHeight + dy));
+            const nextWidth = Math.max(minW, Math.min(canvasSizeRef.current.width - item.x, startWidth + dx));
+            const nextHeight = Math.max(minH, Math.min(canvasSizeRef.current.height - item.y, startHeight + dy));
             return { ...item, width: Math.round(nextWidth), height: Math.round(nextHeight) };
           })
         );
@@ -797,8 +882,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
           item.id === id
             ? {
                 ...item,
-                x: Math.max(0, Math.min(CANVAS_W - item.width, nextX)),
-                y: Math.max(0, Math.min(CANVAS_H - item.height, nextY))
+                x: Math.max(0, Math.min(canvasSizeRef.current.width - item.width, nextX)),
+                y: Math.max(0, Math.min(canvasSizeRef.current.height - item.height, nextY))
               }
             : item
         )
@@ -823,20 +908,50 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
 
   const loadSavedWorks = async () => {
     try {
-      const postcards = getList(STORAGE_KEYS.postcards).filter(
-        (item) => !item.ownerGmail || !currentUser?.gmail || item.ownerGmail === currentUser.gmail
-      );
-      const photoBooths = getList(STORAGE_KEYS.photoBooths).filter(
-        (item) => !item.ownerGmail || !currentUser?.gmail || item.ownerGmail === currentUser.gmail
-      );
+      const belongsToMe = (item) => !item.ownerGmail || !currentUser?.gmail || item.ownerGmail === currentUser.gmail;
+      const stampType = (type) => (item) => ({
+        ...item,
+        type: item.type || type,
+        sourceType: type,
+        title: item.title || (type === "postcard" ? "Untitled Postcard" : type === "photobooth" ? "Untitled Photo Booth" : "Untitled Scrapbook")
+      });
 
-      const withImages = await attachImages([...postcards, ...photoBooths]);
-      setSavedWorks(withImages.filter((item) => item.image));
+      const postcards = getList(STORAGE_KEYS.postcards).filter(belongsToMe).map(stampType("postcard"));
+      const photoBooths = getList(STORAGE_KEYS.photoBooths).filter(belongsToMe).map(stampType("photobooth"));
+      const scrapbooks = getList(STORAGE_KEYS.scrapbooks).filter(belongsToMe).map(stampType("scrapbook"));
+
+      const withImages = await attachImages([...postcards, ...photoBooths, ...scrapbooks]);
+      setSavedWorks(
+        withImages
+          .map((item) => ({
+            ...item,
+            image: item.image || item.preview || item.dataUrl || item.src || item.thumbnail || null,
+            sourceType: item.sourceType || item.type
+          }))
+          .filter((item) => item.image)
+      );
     } catch (error) {
       console.error(error);
       alert("讀取 My Storage 作品失敗，請確認作品有成功儲存。");
     }
   };
+
+
+  const openWorksPicker = async () => {
+    await loadSavedWorks();
+    setWorksOpen(true);
+  };
+
+  const closeWorksPicker = () => setWorksOpen(false);
+
+  const workTypeLabel = (type) => {
+    if (type === "postcard") return "Postcard｜明信片";
+    if (type === "photobooth") return "Booth｜拍貼";
+    if (type === "scrapbook") return "Scrapbook｜手帳";
+    return "Work｜作品";
+  };
+
+  const filteredSavedWorks = savedWorks.filter((work) => worksFilter === "all" || work.sourceType === worksFilter || work.type === worksFilter);
 
   const startDrawing = (e) => {
     if (!drawingMode || !canvasRef.current || eraserMode === "object") return;
@@ -846,8 +961,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
     const info = getCanvasInfo(e);
     if (!info) return;
     const point = {
-      x: Math.max(0, Math.min(CANVAS_W, Math.round(info.x))),
-      y: Math.max(0, Math.min(CANVAS_H, Math.round(info.y)))
+      x: Math.max(0, Math.min(canvasSizeRef.current.width, Math.round(info.x))),
+      y: Math.max(0, Math.min(canvasSizeRef.current.height, Math.round(info.y)))
     };
     const id = makeId();
     pushHistorySnapshot();
@@ -859,8 +974,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
         type: "drawing",
         x: 0,
         y: 0,
-        width: CANVAS_W,
-        height: CANVAS_H,
+        width: canvasSize.width,
+        height: canvasSize.height,
         z: 10000 + prev.length,
         points: [point],
         color: eraserMode === "pixel" ? theme.paper : brushColor,
@@ -872,6 +987,15 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
       }
     ]);
     drawRef.current = { id };
+  };
+
+  const handleCanvasPointerDown = (e) => {
+    if (e.target?.closest?.(".sp-item")) return;
+    if (drawingMode) {
+      startDrawing(e);
+      return;
+    }
+    setSelectedId(null);
   };
 
   const selectAndDrag = (e, id) => {
@@ -1138,85 +1262,243 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
     setSelectedId(stamped[0]?.id || null);
   };
 
+  const fixedTemplateTypes = ["monthly", "weekly", "daily"];
+
   const handleTemplateTypeChange = (nextType) => {
     setTemplateType(nextType);
     setSelectedId(null);
-    if (nextType !== "blank") {
+    if (fixedTemplateTypes.includes(nextType)) {
+      setLastFixedTemplate(nextType);
+    }
+    if (nextType !== "blank" && nextType !== "uploaded") {
       // 切換月曆 / 週計畫 / 日計畫時，清掉上一個「可編輯模板」產生的元素，避免堆在一起。
       commitItems((prev) => prev.filter((item) => !item.templateElement));
     }
   };
 
+  const backToFixedTemplate = () => {
+    const source = activeEditableTemplate || lastFixedTemplate || "monthly";
+    commitItems((prev) => prev.filter((item) => !item.templateElement));
+    setTemplateType(source);
+    setLastFixedTemplate(source);
+    setSelectedId(null);
+  };
+
+  const makeTemplateBox = (patch) => ({
+    id: makeId(),
+    type: "box",
+    colorOpacity: patch.colorOpacity ?? 0.84,
+    textColorOpacity: 1,
+    borderEnabled: true,
+    borderOpacity: 1,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 14,
+    fontFamily: "Trebuchet MS",
+    fontWeight: patch.fontWeight ?? (patch.bold ? 800 : 500),
+    textStrokeEnabled: false,
+    opacity: 1,
+    templateElement: true,
+    ...patch
+  });
+
   const insertEditableMonthlyTemplate = () => {
-    const startX = 40;
-    const startY = 80;
-    const cellW = 102;
-    const cellH = 78;
-    const gap = 6;
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const first = new Date(year, month - 1, 1).getDay();
-    const total = new Date(year, month, 0).getDate();
+    const w = canvasSize.width;
+    const h = canvasSize.height;
+    const margin = Math.max(18, Math.round(Math.min(w, h) * 0.045));
+    const gap = Math.max(4, Math.round(w * 0.008));
+    const titleH = Math.max(34, Math.round(h * 0.052));
+    const weekH = Math.max(24, Math.round(h * 0.036));
+    const gridTop = margin + titleH + gap * 2 + weekH;
+    const cellW = Math.floor((w - margin * 2 - gap * 6) / 7);
+    const cellH = Math.floor((h - gridTop - margin - gap * 5) / 6);
+    const cells = makeMonthlyCells(Number(year), Number(month));
+    const monthName = new Date(Number(year), Number(month) - 1, 1).toLocaleString("en-US", { month: "long" });
     const newItems = [];
 
-    newItems.push({
-      id: makeId(), type: "box", x: startX, y: 28, z: items.length + 3, width: 720, height: 42,
-      text: `${year} / ${String(month).padStart(2, "0")}`, color: theme.soft, textColor: theme.text,
-      borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 16, fontSize: 24, fontFamily: "Georgia", bold: true, align: "center", opacity: 1
+    newItems.push(makeTemplateBox({
+      x: margin,
+      y: margin,
+      z: 10,
+      width: w - margin * 2,
+      height: titleH,
+      text: `${monthName} ${year}`,
+      color: theme.soft,
+      colorOpacity: 0.92,
+      textColor: theme.text,
+      fontSize: Math.max(16, Math.round(titleH * 0.48)),
+      fontFamily: styleName === "vintage" ? "Georgia" : "Trebuchet MS",
+      bold: true,
+      align: "center",
+      borderRadius: styleName === "minimal" ? 6 : 18
+    }));
+
+    weekDayLabels.forEach((day, i) => {
+      newItems.push(makeTemplateBox({
+        x: margin + i * (cellW + gap),
+        y: margin + titleH + gap,
+        z: 11 + i,
+        width: cellW,
+        height: weekH,
+        text: day,
+        color: theme.accent,
+        colorOpacity: 0.92,
+        textColor: "#ffffff",
+        fontSize: Math.max(10, Math.round(weekH * 0.42)),
+        bold: true,
+        align: "center",
+        borderEnabled: false,
+        borderRadius: 999
+      }));
     });
 
-    days.forEach((day, i) => {
-      newItems.push({
-        id: makeId(), type: "box", x: startX + i * (cellW + gap), y: startY, z: items.length + 4 + i, width: cellW, height: 36,
-        text: day, color: theme.accent, textColor: "#ffffff", borderEnabled: false, borderColor: theme.border, borderWidth: 1, borderRadius: 12, fontSize: 15, fontFamily: "Trebuchet MS", bold: true, align: "center", opacity: 0.95
-      });
-    });
-
-    for (let slot = 0; slot < 42; slot += 1) {
-      const dayNum = slot - first + 1;
+    cells.forEach((day, slot) => {
       const row = Math.floor(slot / 7);
       const col = slot % 7;
-      newItems.push({
-        id: makeId(), type: "box", x: startX + col * (cellW + gap), y: startY + 44 + row * (cellH + gap), z: items.length + 20 + slot, width: cellW, height: cellH,
-        text: dayNum >= 1 && dayNum <= total ? String(dayNum) : "", color: "rgba(255,255,255,0.74)", textColor: theme.text,
-        borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 14, fontSize: 17, fontFamily: "Trebuchet MS", bold: false, align: "left", opacity: 1
-      });
-    }
+      newItems.push(makeTemplateBox({
+        x: margin + col * (cellW + gap),
+        y: gridTop + row * (cellH + gap),
+        z: 30 + slot,
+        width: cellW,
+        height: cellH,
+        text: day ? String(day) : "",
+        color: "#ffffff",
+        colorOpacity: day ? 0.74 : 0.34,
+        textColor: theme.text,
+        fontSize: Math.max(12, Math.round(cellH * 0.18)),
+        align: "left",
+        borderRadius: styleName === "minimal" ? 4 : 14
+      }));
+    });
 
     replaceEditableTemplate(newItems, "monthly");
   };
 
   const insertEditableWeeklyTemplate = () => {
+    const w = canvasSize.width;
+    const h = canvasSize.height;
+    const margin = Math.max(18, Math.round(Math.min(w, h) * 0.045));
+    const gap = Math.max(8, Math.round(Math.min(w, h) * 0.018));
+    const titleH = Math.max(34, Math.round(h * 0.052));
     const base = parseDateInput(dateValue);
     const monday = startOfWeek(base);
+    const cols = w >= 760 ? 7 : w >= 520 ? 2 : 1;
+    const rows = Math.ceil(7 / cols);
+    const boxW = Math.floor((w - margin * 2 - gap * (cols - 1)) / cols);
+    const boxH = Math.max(54, Math.floor((h - margin * 2 - titleH - gap * (rows + 1)) / rows));
     const newItems = [
-      { id: makeId(), type: "box", x: 42, y: 32, z: items.length + 3, width: 716, height: 48, text: `Weekly Planner · ${formatShort(monday)}`, color: theme.soft, colorOpacity: 1, textColor: theme.text, textColorOpacity: 1, borderEnabled: true, borderColor: theme.border, borderOpacity: 1, borderWidth: 1, borderRadius: 16, fontSize: 24, fontFamily: "Georgia", fontWeight: 800, bold: true, align: "center", opacity: 1 }
+      makeTemplateBox({
+        x: margin,
+        y: margin,
+        z: 10,
+        width: w - margin * 2,
+        height: titleH,
+        text: `Weekly Planner · ${formatShort(monday)}`,
+        color: theme.soft,
+        colorOpacity: 0.9,
+        textColor: theme.text,
+        fontSize: Math.max(16, Math.round(titleH * 0.45)),
+        fontFamily: styleName === "vintage" ? "Georgia" : "Trebuchet MS",
+        bold: true,
+        align: "center"
+      })
     ];
+
     for (let i = 0; i < 7; i += 1) {
       const current = new Date(monday);
       current.setDate(monday.getDate() + i);
-      newItems.push({ id: makeId(), type: "box", x: 42 + (i % 2) * 360, y: 96 + Math.floor(i / 2) * 150, z: items.length + 10 + i, width: 340, height: 128, text: `${weekDayLabels[i]} ${formatShort(current)}\n\n`, color: "rgba(255,255,255,0.76)", textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 16, fontSize: 16, fontFamily: "Trebuchet MS", bold: false, align: "left", opacity: 1 });
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      newItems.push(makeTemplateBox({
+        x: margin + col * (boxW + gap),
+        y: margin + titleH + gap + row * (boxH + gap),
+        z: 20 + i,
+        width: boxW,
+        height: boxH,
+        text: `${weekDayLabels[i]} ${formatShort(current)}`,
+        color: "#ffffff",
+        colorOpacity: 0.76,
+        textColor: theme.text,
+        fontSize: Math.max(10, Math.min(18, Math.round(Math.min(boxH, boxW) * 0.11))),
+        bold: true,
+        align: "left",
+        borderRadius: styleName === "minimal" ? 6 : 18
+      }));
     }
-    labels.forEach((label, i) => {
-      newItems.push({ id: makeId(), type: "box", x: 42 + i * 240, y: 720, z: items.length + 30 + i, width: 220, height: 170, text: `${label}\n\n-`, color: theme.note, textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 18, fontSize: 16, fontFamily: "Trebuchet MS", bold: false, align: "left", opacity: 1 });
-    });
     replaceEditableTemplate(newItems, "weekly");
   };
 
   const insertEditableDailyTemplate = () => {
+    const w = canvasSize.width;
+    const h = canvasSize.height;
+    const margin = Math.max(18, Math.round(Math.min(w, h) * 0.045));
+    const gap = Math.max(8, Math.round(Math.min(w, h) * 0.018));
+    const titleH = Math.max(34, Math.round(h * 0.052));
     const date = parseDateInput(dateValue);
+    const belowY = margin + titleH + gap;
+    const availableH = h - belowY - margin;
+    const leftW = Math.floor((w - margin * 2 - gap) * 0.52);
+    const rightW = w - margin * 2 - gap - leftW;
+    const halfH = Math.floor((availableH - gap) / 2);
     const newItems = [
-      { id: makeId(), type: "box", x: 42, y: 32, z: items.length + 3, width: 716, height: 48, text: `Daily Planner · ${formatShort(date)} ${getWeekdayName(date)}`, color: theme.soft, textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 16, fontSize: 23, fontFamily: "Georgia", bold: true, align: "center", opacity: 1 },
-      { id: makeId(), type: "box", x: 42, y: 110, z: items.length + 4, width: 330, height: 420, text: "Today’s Schedule\n\n08:00  __________\n10:00  __________\n12:00  __________\n14:00  __________\n16:00  __________\n18:00  __________", color: "rgba(255,255,255,0.78)", textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 18, fontSize: 16, fontFamily: "Trebuchet MS", bold: false, align: "left", opacity: 1 },
-      { id: makeId(), type: "box", x: 410, y: 110, z: items.length + 5, width: 320, height: 240, text: "To-do List\n\n□\n□\n□\n□", color: theme.note, textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 18, fontSize: 17, fontFamily: "Trebuchet MS", bold: false, align: "left", opacity: 1 },
-      { id: makeId(), type: "box", x: 410, y: 380, z: items.length + 6, width: 320, height: 150, text: "Mood\n😊  😐  😴  💪  🌷", color: "rgba(255,255,255,0.76)", textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 18, fontSize: 18, fontFamily: "Trebuchet MS", bold: false, align: "center", opacity: 1 },
-      { id: makeId(), type: "box", x: 42, y: 570, z: items.length + 7, width: 688, height: 260, text: "Notes\n\n", color: "rgba(255,255,255,0.76)", textColor: theme.text, borderEnabled: true, borderColor: theme.border, borderWidth: 1, borderRadius: 18, fontSize: 18, fontFamily: "Trebuchet MS", bold: false, align: "left", opacity: 1 }
+      makeTemplateBox({
+        x: margin,
+        y: margin,
+        z: 10,
+        width: w - margin * 2,
+        height: titleH,
+        text: `Daily Planner · ${formatShort(date)} ${getWeekdayName(date)}`,
+        color: theme.soft,
+        colorOpacity: 0.9,
+        textColor: theme.text,
+        fontSize: Math.max(15, Math.round(titleH * 0.42)),
+        fontFamily: styleName === "vintage" ? "Georgia" : "Trebuchet MS",
+        bold: true,
+        align: "center"
+      }),
+      makeTemplateBox({ x: margin, y: belowY, z: 20, width: leftW, height: availableH, text: "Schedule\n08:00\n10:00\n12:00\n14:00\n16:00", color: "#ffffff", colorOpacity: 0.76, textColor: theme.text, fontSize: Math.max(10, Math.min(16, Math.round(w * 0.018))), bold: false, align: "left", borderRadius: styleName === "minimal" ? 6 : 18 }),
+      makeTemplateBox({ x: margin + leftW + gap, y: belowY, z: 21, width: rightW, height: halfH, text: "To-do", color: theme.note, colorOpacity: 0.82, textColor: theme.text, fontSize: Math.max(11, Math.min(17, Math.round(w * 0.019))), bold: true, align: "left", borderRadius: styleName === "minimal" ? 6 : 18 }),
+      makeTemplateBox({ x: margin + leftW + gap, y: belowY + halfH + gap, z: 22, width: rightW, height: halfH, text: "Notes / Mood", color: "#ffffff", colorOpacity: 0.76, textColor: theme.text, fontSize: Math.max(11, Math.min(17, Math.round(w * 0.019))), bold: true, align: "left", borderRadius: styleName === "minimal" ? 6 : 18 })
     ];
     replaceEditableTemplate(newItems, "daily");
   };
 
+  useEffect(() => {
+    if (!activeEditableTemplate) return;
+    if (activeEditableTemplate === "monthly") insertEditableMonthlyTemplate();
+    if (activeEditableTemplate === "weekly") insertEditableWeeklyTemplate();
+    if (activeEditableTemplate === "daily") insertEditableDailyTemplate();
+    // Rebuild editable template elements whenever style, date, size, or orientation changes.
+    // This keeps the editable elements using the same design and spacing as each fixed template.
+  }, [styleName, canvasSize.width, canvasSize.height, year, month, dateValue]);
+
   const updateSelected = (patch) => {
     if (!selectedItem) return;
     commitItems((prev) => prev.map((item) => (item.id === selectedItem.id ? { ...item, ...patch } : item)));
+  };
+
+  const resetSelectedDefaults = () => {
+    if (!selectedItem) return;
+    const common = {
+      opacity: 1,
+      rotation: 0,
+      borderEnabled: false,
+      borderWidth: 0,
+      borderColor: theme.border,
+      borderOpacity: 1,
+      borderRadius: 14
+    };
+    const typeDefaults = {
+      text: { ...common, fontSize: 24, fontWeight: 500, color: theme.text, colorOpacity: 1, bgColor: "transparent", textStrokeEnabled: false },
+      sticker: { ...common, shape: "rounded", color: theme.sticker, colorOpacity: 1, textColor: theme.text, textColorOpacity: 1, fontSize: 18 },
+      tape: { ...common, pattern: "solid", color: theme.tape, colorOpacity: .8, textColor: theme.text, textColorOpacity: 1, borderRadius: 8 },
+      note: { ...common, variant: "blank", noteShape: "rounded", color: theme.note, colorOpacity: 1, textColor: theme.text, textColorOpacity: 1, fontSize: 16, borderRadius: 18 },
+      box: { ...common, color: theme.soft, colorOpacity: .9, textColor: theme.text, textColorOpacity: 1, fontSize: 18, align: "center" },
+      polaroid: { ...common, frameColor: "#fffdf8", frameOpacity: 1, fit: "cover", cropX: 50, cropY: 50, cropZoom: 100, cropMode: false, imageRounded: false, imageRadius: 10 },
+      image: { ...common, frameColor: "#fffdf8", frameOpacity: 1, fit: "contain", cropX: 50, cropY: 50, cropZoom: 100, cropMode: false, imageRounded: false, imageRadius: 14 },
+      drawing: { opacity: 1 }
+    };
+    updateSelected(typeDefaults[selectedItem.type] || common);
   };
 
   const deleteSelected = () => {
@@ -1230,8 +1512,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
     const copy = {
       ...selectedItem,
       id: makeId(),
-      x: Math.min(selectedItem.x + 30, CANVAS_W - selectedItem.width),
-      y: Math.min(selectedItem.y + 30, CANVAS_H - selectedItem.height),
+      x: Math.min(selectedItem.x + 30, canvasSize.width - selectedItem.width),
+      y: Math.min(selectedItem.y + 30, canvasSize.height - selectedItem.height),
       z: items.length + 3
     };
     commitItems((prev) => [...prev, copy]);
@@ -1260,6 +1542,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
     const dataUrl = await readFileAsDataUrl(file);
     setUploadedTemplate(dataUrl);
     setTemplateType("uploaded");
+    setSelectedId(null);
+    e.target.value = "";
   };
 
   const handlePolaroidUpload = async (e) => {
@@ -1389,8 +1673,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
     add("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
     obj(1, ["<< /Type /Catalog /Pages 2 0 R >>"]);
     obj(2, ["<< /Type /Pages /Kids [3 0 R] /Count 1 >>"]);
-    obj(3, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${CANVAS_W} ${CANVAS_H}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`]);
-    obj(4, [`<< /Type /XObject /Subtype /Image /Width ${CANVAS_W} /Height ${CANVAS_H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`, bytes, "\nendstream"]);
+    obj(3, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${canvasSize.width} ${canvasSize.height}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`]);
+    obj(4, [`<< /Type /XObject /Subtype /Image /Width ${canvasSize.width} /Height ${canvasSize.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`, bytes, "\nendstream"]);
     const content = `q\n${CANVAS_W} 0 0 ${CANVAS_H} 0 0 cm\n/Im0 Do\nQ`;
     obj(5, [`<< /Length ${content.length} >>\nstream\n${content}\nendstream`]);
     const xrefStart = position;
@@ -1449,8 +1733,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
       await onShareToWall({
         id: makeId(),
         type: "scrapbook",
-        title: "Scrapbook Planner",
-        caption: "Shared scrapbook planner",
+        title: "Scrapbook",
+        caption: "Shared scrapbook",
         image: dataUrl
       });
     } catch (error) {
@@ -1460,6 +1744,69 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
       setDownloading(false);
     }
   };
+
+
+  const storeCurrentToStorage = async () => {
+    if (!onSaveArtwork) {
+      alert("Storage is not connected yet. / 目前尚未接到作品庫功能。");
+      return;
+    }
+    setDownloading(true);
+    try {
+      const dataUrl = await captureCanvasImage("image/png");
+      if (!dataUrl) return;
+      const item = {
+        id: makeId(),
+        type: "scrapbook",
+        title: `Scrapbook ${new Date().toLocaleDateString()}`,
+        subtitle: `${stylePresets[styleName]?.label || "Style"} · ${canvasPresets[canvasPreset]?.label || "Canvas"}`,
+        createdAt: new Date().toLocaleString(),
+        image: dataUrl,
+        data: { styleName, templateType, year, month, dateValue, canvasPreset, orientation, items }
+      };
+      const ok = await onSaveArtwork("scrapbook", item);
+      if (ok) alert("Saved to My Storage! / 已存到 My Storage！");
+    } catch (error) {
+      console.error(error);
+      alert("Save failed. / 儲存失敗，請再試一次。");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    const actions = {
+      store: storeCurrentToStorage,
+      "download-png": downloadPng,
+      "download-pdf": downloadPdf,
+      share: shareCurrentToWall
+    };
+    window.lifeTrackerScrapbookActions = actions;
+    return () => {
+      if (window.lifeTrackerScrapbookActions === actions) {
+        delete window.lifeTrackerScrapbookActions;
+      }
+    };
+  }, [items, styleName, templateType, year, month, dateValue, canvasPreset, orientation, theme.paper, uploadedTemplate]);
+
+  useEffect(() => {
+    const storeHandler = () => storeCurrentToStorage();
+    const pngHandler = () => downloadPng();
+    const pdfHandler = () => downloadPdf();
+    const shareHandler = () => shareCurrentToWall();
+    window.addEventListener("life-tracker-store-scrapbook", storeHandler);
+    window.addEventListener("life-tracker-scrapbook-store", storeHandler);
+    window.addEventListener("life-tracker-scrapbook-download-png", pngHandler);
+    window.addEventListener("life-tracker-scrapbook-download-pdf", pdfHandler);
+    window.addEventListener("life-tracker-scrapbook-share", shareHandler);
+    return () => {
+      window.removeEventListener("life-tracker-store-scrapbook", storeHandler);
+      window.removeEventListener("life-tracker-scrapbook-store", storeHandler);
+      window.removeEventListener("life-tracker-scrapbook-download-png", pngHandler);
+      window.removeEventListener("life-tracker-scrapbook-download-pdf", pdfHandler);
+      window.removeEventListener("life-tracker-scrapbook-share", shareHandler);
+    };
+  }, [items, styleName, templateType, year, month, dateValue, canvasPreset, orientation, theme.paper]);
 
   const renderTemplate = () => {
     if (templateType === "blank") return null;
@@ -1473,215 +1820,129 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
     <div className="sp-page">
       <style>{scrapbookStyles}</style>
 
-      <div className="sp-heading">
+      <div className="sp-heading sp-heading-compact">
         <div>
-          <h2>Scrapbook Planner Studio</h2>
-          <p>單頁手帳 / 計畫本編輯器：可以加入文字、貼紙、紙膠帶、便利貼、拍立得，也能導入 My Storage 作品。</p>
-        </div>
-        <div className="sp-heading-actions">
-          <button className="sp-primary-btn" onClick={downloadPng} disabled={downloading}>
-            {downloading ? "Exporting..." : "Download PNG"}
-          </button>
-          <button className="sp-primary-btn sp-secondary-export" onClick={downloadPdf} disabled={downloading}>
-            Download PDF
-          </button>
-          <button className="sp-primary-btn sp-wall-export" onClick={shareCurrentToWall} disabled={downloading}>
-            Share to Wall
-          </button>
+          <h2>Scrapbook</h2>
+          <p>Single-page creative planner. / 單頁手帳計畫本</p>
         </div>
       </div>
 
       <div className="sp-layout">
-        <aside className="sp-panel">
-          <h3>Tools</h3>
-
-          <div className="sp-history-tools">
-            <label>History 歷史紀錄</label>
+        <aside className="sp-panel sp-tool-panel">
+          <div className="sp-panel-fixed sp-panel-top">
+            <h3><Bi en="Tools" zh="工具" /></h3>
             <div className="sp-history-menus">
               <details className="sp-step-menu">
-                <summary className={history.length === 0 ? "sp-history-btn sp-disabled-summary" : "sp-history-btn"}>↶ Undo 選步數</summary>
+                <summary className={history.length === 0 ? "sp-history-btn sp-disabled-summary" : "sp-history-btn"}><Bi en="↶ Undo" zh="上一步" /></summary>
                 <div className="sp-step-menu-panel">
                   {[1, 2, 3, 4, 5].map((step) => (
-                    <button key={`undo-${step}`} type="button" disabled={history.length < step} onClick={() => undoSteps(step)}>
-                      回上 {step} 步
-                    </button>
+                    <button key={`undo-${step}`} type="button" disabled={history.length < step} onClick={() => undoSteps(step)}><Bi en={`Undo ${step}`} zh={`${step} 步`} /></button>
                   ))}
                 </div>
               </details>
               <details className="sp-step-menu">
-                <summary className={future.length === 0 ? "sp-history-btn sp-redo-btn sp-disabled-summary" : "sp-history-btn sp-redo-btn"}>↷ Redo 選步數</summary>
+                <summary className={future.length === 0 ? "sp-history-btn sp-redo-btn sp-disabled-summary" : "sp-history-btn sp-redo-btn"}><Bi en="↷ Redo" zh="下一步" /></summary>
                 <div className="sp-step-menu-panel">
                   {[1, 2, 3, 4, 5].map((step) => (
-                    <button key={`redo-${step}`} type="button" disabled={future.length < step} onClick={() => redoSteps(step)}>
-                      下一步 {step} 步
-                    </button>
+                    <button key={`redo-${step}`} type="button" disabled={future.length < step} onClick={() => redoSteps(step)}><Bi en={`Redo ${step}`} zh={`${step} 步`} /></button>
                   ))}
                 </div>
               </details>
             </div>
+
+            <div className="sp-tab-buttons">
+              <button className={activeToolPanel === "theme" ? "active" : ""} onClick={() => changeToolPanel("theme")}><Bi en="Theme" zh="主題" /></button>
+              <button className={activeToolPanel === "materials" ? "active" : ""} onClick={() => changeToolPanel("materials")}><Bi en="Materials" zh="素材" /></button>
+              <button className={activeToolPanel === "draw" ? "active" : ""} onClick={() => changeToolPanel("draw")}><Bi en="Draw" zh="手繪" /></button>
+            </div>
           </div>
 
-          <label>Style</label>
-          <select value={styleName} onChange={(e) => setStyleName(e.target.value)}>
-            {Object.entries(stylePresets).map(([key, value]) => (
-              <option key={key} value={key}>
-                {value.label}
-              </option>
-            ))}
-          </select>
-
-          <label>Template</label>
-          <select value={templateType} onChange={(e) => handleTemplateTypeChange(e.target.value)}>
-            <option value="blank">Blank 空白紙</option>
-            <option value="monthly">Monthly Calendar 月曆</option>
-            <option value="weekly">Weekly Planner 週計畫</option>
-            <option value="daily">Daily Planner 日計畫</option>
-            <option value="uploaded">Uploaded Template 上傳模板</option>
-          </select>
-
-          {templateType === "monthly" && (
-            <div className="sp-two-col">
-              <div>
-                <label>Year</label>
-                <input type="number" value={year} onChange={(e) => setYear(e.target.value)} />
-              </div>
-              <div>
-                <label>Month</label>
-                <select value={month} onChange={(e) => setMonth(e.target.value)}>
-                  {Array.from({ length: 12 }, (_, index) => index + 1).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
+          <div className="sp-panel-scroll">
+            {activeToolPanel === "theme" && (
+              <div className="sp-tool-section">
+                <label><Bi en="Canvas Size" zh="畫布尺寸" /></label>
+                <select value={canvasPreset} onChange={(e) => setCanvasPreset(e.target.value)}>
+                  {Object.entries(canvasPresets).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
                 </select>
+                <label><Bi en="Orientation" zh="方向" /></label>
+                <select value={orientation} onChange={(e) => setOrientation(e.target.value)}>
+                  <option value="portrait">Portrait｜直向</option>
+                  <option value="landscape">Landscape｜橫向</option>
+                </select>
+                <label><Bi en="Style" zh="風格" /></label>
+                <select value={styleName} onChange={(e) => setStyleName(e.target.value)}>
+                  {Object.entries(stylePresets).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+                </select>
+                <label><Bi en="Template" zh="模板" /></label>
+                <select value={templateType} onChange={(e) => handleTemplateTypeChange(e.target.value)}>
+                  <option value="blank">Blank｜空白紙</option>
+                  <option value="monthly">Monthly Calendar｜月曆</option>
+                  <option value="weekly">Weekly Planner｜週計畫</option>
+                  <option value="daily">Daily Planner｜日計畫</option>
+                  <option value="uploaded">Uploaded Template｜上傳模板</option>
+                </select>
+                {templateType === "monthly" && <div className="sp-two-col"><div><label><Bi en="Year" zh="年份" /></label><input type="number" value={year} onChange={(e) => setYear(e.target.value)} /></div><div><label><Bi en="Month" zh="月份" /></label><select value={month} onChange={(e) => setMonth(e.target.value)}>{Array.from({ length: 12 }, (_, index) => index + 1).map((m) => <option key={m} value={m}>{m}</option>)}</select></div></div>}
+                {(templateType === "weekly" || templateType === "daily") && <><label><Bi en="Date" zh="日期" /></label><input type="date" value={dateValue} onChange={(e) => setDateValue(e.target.value)} /></>}
+                <div className="sp-template-actions">
+                  {templateType === "monthly" && <button type="button" onClick={insertEditableMonthlyTemplate}><Bi en="Edit Monthly" zh="編輯月曆" /></button>}
+                  {templateType === "weekly" && <button type="button" onClick={insertEditableWeeklyTemplate}><Bi en="Edit Weekly" zh="編輯週計畫" /></button>}
+                  {templateType === "daily" && <button type="button" onClick={insertEditableDailyTemplate}><Bi en="Edit Daily" zh="編輯日計畫" /></button>}
+                  {(activeEditableTemplate || templateType === "uploaded") && <button type="button" onClick={backToFixedTemplate}><Bi en="Fixed Template" zh="回既定模板" /></button>}
+                </div>
+                <label className="sp-file-btn"><Bi en="Upload Template" zh="上傳模板" /><input type="file" accept="image/*,.pdf" onChange={handleTemplateUpload} /></label>
+                <small className="sp-help">Use PNG/JPG/WEBP as a background template.<br />可上傳圖片模板並在上面編輯。</small>
               </div>
-            </div>
-          )}
+            )}
 
-          {(templateType === "weekly" || templateType === "daily") && (
-            <>
-              <label>Date</label>
-              <input type="date" value={dateValue} onChange={(e) => setDateValue(e.target.value)} />
-            </>
-          )}
+            {activeToolPanel === "materials" && (
+              <div className="sp-tool-section">
+                <div className="sp-tool-grid"><button onClick={addText}><Bi en="Text" zh="文字" /></button><button onClick={addSticker}><Bi en="Sticker" zh="貼紙" /></button><button onClick={addTape}><Bi en="Washi Tape" zh="紙膠帶" /></button><button onClick={addNote}><Bi en="Sticky Note" zh="便利貼" /></button></div>
+                <button className="sp-wide-btn" onClick={() => addPolaroid("")}><Bi en="Blank Polaroid" zh="空拍立得" /></button>
+                <label className="sp-file-btn"><Bi en="To Polaroid" zh="加入拍立得" /><input type="file" accept="image/*" onChange={handlePolaroidUpload} /></label>
+                <label className="sp-file-btn"><Bi en="Photo Material" zh="照片素材" /><input type="file" accept="image/*" onChange={handleImageCardUpload} /></label>
+                <button className="sp-wide-btn" type="button" onClick={openWorksPicker}><Bi en="Import Works" zh="匯入作品" /></button>
+                <small className="sp-help">Pick postcards, booth strips, or scrapbook pages from My Storage.<br />可從 My Storage 選擇要導入的明信片、拍貼或手帳作品。</small>
+              </div>
+            )}
 
-          <div className="sp-template-actions">
-            {templateType === "monthly" && <button type="button" onClick={insertEditableMonthlyTemplate}>Make Monthly Template Editable</button>}
-            {templateType === "weekly" && <button type="button" onClick={insertEditableWeeklyTemplate}>Make Weekly Template Editable</button>}
-            {templateType === "daily" && <button type="button" onClick={insertEditableDailyTemplate}>Make Daily Template Editable</button>}
+            {activeToolPanel === "draw" && (
+              <div className="sp-draw-tool sp-tool-section">
+                <button type="button" className={drawingMode ? "sp-draw-active" : "sp-wide-btn"} onClick={() => setDrawingMode((prev) => !prev)}>{drawingMode ? <Bi en="Drawing ON" zh="正在手繪" /> : <Bi en="Draw on Page" zh="在手帳上畫畫" />}</button>
+                <ColorOpacityField label="Brush Color｜筆刷顏色" color={brushColor} alpha={brushOpacity} fallback={theme.accent} onColorChange={setBrushColor} onAlphaChange={setBrushOpacity} />
+                <div className={`sp-brush-preview sp-brush-preview-${brushTexture}`} style={{ "--brush-color": colorWithAlpha(brushColor, brushOpacity, theme.accent), "--brush-size": `${Math.max(2, Math.min(18, brushSize))}px` }}>
+                  <span>Brush Preview｜筆刷預覽</span>
+                  <i />
+                </div>
+                <label><Bi en="Brush Texture" zh="筆刷質感" /></label>
+                <select value={brushTexture} onChange={(e) => setBrushTexture(e.target.value)}><option value="pen">Normal Pen</option><option value="marker">Marker</option><option value="pencil">Pencil</option><option value="highlighter">Highlighter</option><option value="dashed">Dashed</option><option value="neon">Glow</option></select>
+                <label><Bi en="Eraser" zh="橡皮擦" /></label>
+                <select value={eraserMode} onChange={(e) => { setEraserMode(e.target.value); if (e.target.value !== "none") setDrawingMode(true); }}><option value="none">Off</option><option value="pixel">Pixel Eraser</option><option value="object">Object Eraser</option></select>
+                <label><Bi en={`Brush Size: ${brushSize}px`} zh={`筆刷大小：${brushSize}px`} /></label><input type="range" min="1" max="36" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} />
+                <small className="sp-help">Pixel eraser removes pixels; object eraser deletes a whole stroke.<br />像素橡皮擦擦線條，物件橡皮擦刪整筆。</small>
+              </div>
+            )}
           </div>
 
-          <label className="sp-file-btn">
-            Upload Image Template
-            <input type="file" accept="image/*,.pdf" onChange={handleTemplateUpload} />
-          </label>
-          <small className="sp-help">目前先支援圖片模板；PDF 可當未來擴充。</small>
-
-          <div className="sp-tool-grid">
-            <button onClick={addText}>Add Text</button>
-            <button onClick={addSticker}>Add Sticker</button>
-            <button onClick={addTape}>Add Tape</button>
-            <button onClick={addNote}>Add Note</button>
-          </div>
-
-          <div className="sp-draw-tool">
-            <button
-              type="button"
-              className={drawingMode ? "sp-draw-active" : "sp-wide-btn"}
-              onClick={() => setDrawingMode((prev) => !prev)}
-            >
-              {drawingMode ? "Drawing Mode ON 畫畫中" : "Draw on Page 在手帳上畫畫"}
+          <div className="sp-panel-fixed sp-panel-bottom sp-tool-bottom-actions">
+            <button className="sp-danger-btn" onClick={() => window.confirm("Clear this page? / 確定清空這張手帳嗎？") && commitItems([])}>
+              <Bi en="Clear Page" zh="清空頁面" />
             </button>
-            <ColorOpacityField
-              label="Brush Color 筆刷顏色"
-              color={brushColor}
-              alpha={brushOpacity}
-              fallback={theme.accent}
-              onColorChange={setBrushColor}
-              onAlphaChange={setBrushOpacity}
-            />
-            <label>Brush Texture 筆刷質感</label>
-            <select value={brushTexture} onChange={(e) => setBrushTexture(e.target.value)}>
-              <option value="pen">Normal Pen 一般筆</option>
-              <option value="marker">Marker 麥克筆</option>
-              <option value="pencil">Pencil 鉛筆感</option>
-              <option value="highlighter">Highlighter 螢光筆</option>
-              <option value="dashed">Dashed 虛線筆</option>
-              <option value="neon">Glow 發光筆</option>
-            </select>
-            <label>Eraser 橡皮擦</label>
-            <select value={eraserMode} onChange={(e) => { setEraserMode(e.target.value); if (e.target.value !== "none") setDrawingMode(true); }}>
-              <option value="none">Off 關閉</option>
-              <option value="pixel">Pixel Eraser 像素橡皮擦</option>
-              <option value="object">Object Eraser 物件橡皮擦</option>
-            </select>
-            <label>Brush Size：{brushSize}px</label>
-            <input type="range" min="1" max="36" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} />
-            <small className="sp-help">像素橡皮擦會用紙張底色覆蓋筆跡；物件橡皮擦可直接點掉整條筆跡。</small>
           </div>
-
-          <button className="sp-wide-btn" onClick={() => addPolaroid("")}>Add Blank Polaroid</button>
-
-          <label className="sp-file-btn">
-            Add Polaroid from Image
-            <input type="file" accept="image/*" onChange={handlePolaroidUpload} />
-          </label>
-
-          <label className="sp-file-btn">
-            Add Image Card from Image
-            <input type="file" accept="image/*" onChange={handleImageCardUpload} />
-          </label>
-
-          <button
-            className="sp-wide-btn"
-            onClick={() => {
-              loadSavedWorks();
-              setWorksOpen((prev) => !prev);
-            }}
-          >
-            Import Works from My Storage
-          </button>
-
-          {worksOpen && (
-            <div className="sp-work-list">
-              {savedWorks.length === 0 ? (
-                <p className="sp-help">目前讀不到作品，請先在明信片或拍貼機按 Save to My Storage。</p>
-              ) : (
-                savedWorks.map((work) => (
-                  <div className="sp-work" key={work.id}>
-                    <img src={work.image} alt={work.title} />
-                    <div>
-                      <strong>{work.type === "postcard" ? "Postcard" : "Photo Booth"}</strong>
-                      <span>{work.title}</span>
-                      <button onClick={() => addImageCard(work.image, work.title)}>Add Image</button>
-                      <button onClick={() => addPolaroid(work.image)}>Add Polaroid</button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          <button className="sp-danger-btn" onClick={() => window.confirm("確定清空這張手帳嗎？") && commitItems([])}>
-            Clear Page
-          </button>
         </aside>
 
         <main className="sp-canvas-wrap">
-          <div className="sp-canvas-toolbar">
-            <span>拖曳素材可移動；右下角小點可調整大小；Rotation 可旋轉；工具列可選上一步/下一步 1～5 步，也能用筆刷或橡皮擦在手帳上畫畫。</span>
-          </div>
-
           <div
             ref={canvasRef}
             className={`sp-canvas sp-style-${styleName}`}
             style={{
               background: theme.paper,
               borderColor: theme.border,
-              cursor: drawingMode ? "crosshair" : "default"
+              cursor: drawingMode ? "crosshair" : "default",
+              width: canvasSize.width,
+              height: canvasSize.height,
+              aspectRatio: `${canvasSize.width} / ${canvasSize.height}`
             }}
-            onPointerDown={startDrawing}
-            onClick={() => setSelectedId(null)}
+            onPointerDown={handleCanvasPointerDown}
           >
             {templateType === "uploaded" && uploadedTemplate && (
               <img className="sp-uploaded-template" src={uploadedTemplate} alt="uploaded template" />
@@ -1704,400 +1965,131 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall }) {
                   commitItems((prev) => prev.filter((target) => target.id !== id));
                   setSelectedId(null);
                 }}
+                canvasW={canvasSize.width}
+                canvasH={canvasSize.height}
               />
             ))}
           </div>
         </main>
 
-        <aside className="sp-panel">
-          <h3>Settings</h3>
-          {!selectedItem ? (
-            <p className="sp-empty-setting">請先點選畫布上的文字、貼紙、便利貼或圖片。</p>
-          ) : (
-            <div className="sp-setting-fields">
-              <div className="sp-selected-label">Selected: {selectedItem.type}</div>
-
-              <div className="sp-two-col">
-                <div>
-                  <label>X</label>
-                  <input type="number" value={Math.round(selectedItem.x)} onChange={(e) => updateSelected({ x: Number(e.target.value) })} />
-                </div>
-                <div>
-                  <label>Y</label>
-                  <input type="number" value={Math.round(selectedItem.y)} onChange={(e) => updateSelected({ y: Number(e.target.value) })} />
-                </div>
-              </div>
-
-              <div className="sp-two-col">
-                <div>
-                  <label>Width</label>
-                  <input type="number" value={selectedItem.width} onChange={(e) => updateSelected({ width: Number(e.target.value) })} />
-                </div>
-                <div>
-                  <label>Height</label>
-                  <input type="number" value={selectedItem.height} onChange={(e) => updateSelected({ height: Number(e.target.value) })} />
-                </div>
-              </div>
-
-              {selectedItem.type !== "drawing" && (
-                <>
-                  <label>Rotation Angle 旋轉角度：{selectedItem.rotation || 0}°</label>
-                  <input type="range" min="-180" max="180" value={selectedItem.rotation || 0} onChange={(e) => updateSelected({ rotation: Number(e.target.value) })} />
-                </>
-              )}
-
-              <label>Opacity 透明度：{Math.round((selectedItem.opacity ?? 1) * 100)}%</label>
-              <input
-                type="range"
-                min="10"
-                max="100"
-                value={Math.round((selectedItem.opacity ?? 1) * 100)}
-                onChange={(e) => updateSelected({ opacity: Number(e.target.value) / 100 })}
-              />
-
-              <div className="sp-border-panel">
-                <label className="sp-check-row">
-                  <input
-                    type="checkbox"
-                    checked={itemHasBorder(selectedItem)}
-                    onChange={(e) => updateSelected({ borderEnabled: e.target.checked })}
-                  />
-                  Show Border 顯示邊框
-                </label>
-                <div className="sp-two-col">
-                  <ColorOpacityField
-                    label="Border Color"
-                    color={selectedItem.borderColor}
-                    alpha={selectedItem.borderOpacity ?? 1}
-                    fallback={theme.border}
-                    onColorChange={(value) => updateSelected({ borderColor: value, borderEnabled: true })}
-                    onAlphaChange={(value) => updateSelected({ borderOpacity: value, borderEnabled: true })}
-                  />
-                  <div>
-                    <label>Border Width</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="12"
-                      value={selectedItem.borderWidth ?? 1}
-                      onChange={(e) => updateSelected({ borderWidth: Number(e.target.value), borderEnabled: Number(e.target.value) > 0 })}
-                    />
-                  </div>
-                </div>
-                <label>Rounded Corner 圓角：{selectedItem.borderRadius ?? 12}px</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="80"
-                  value={selectedItem.borderRadius ?? 12}
-                  onChange={(e) => updateSelected({ borderRadius: Number(e.target.value) })}
-                />
-              </div>
-
-              {selectedItem.type === "text" && (
-                <>
-                  <label>Text</label>
-                  <textarea value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} />
-                  <label>Font</label>
-                  <select value={selectedItem.fontFamily} onChange={(e) => updateSelected({ fontFamily: e.target.value })}>
-                    {fontOptions.map((font) => (
-                      <option key={font} value={font}>{font}</option>
-                    ))}
-                  </select>
-                  <div className="sp-two-col">
-                    <div>
-                      <label>Size</label>
-                      <input type="number" value={selectedItem.fontSize} onChange={(e) => updateSelected({ fontSize: Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <ColorOpacityField label="Color" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.text} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} />
-                    </div>
-                  </div>
-                  <label className="sp-check-row">
-                    <input
-                      type="checkbox"
-                      checked={selectedItem.bgColor === "transparent"}
-                      onChange={(e) => updateSelected({ bgColor: e.target.checked ? "transparent" : theme.soft })}
-                    />
-                    Transparent Background 透明背景
-                  </label>
-                  {selectedItem.bgColor !== "transparent" && (
-                    <>
-                      <ColorOpacityField label="Background Color" color={selectedItem.bgColor} alpha={selectedItem.bgOpacity ?? 1} fallback={theme.soft} onColorChange={(value) => updateSelected({ bgColor: value })} onAlphaChange={(value) => updateSelected({ bgOpacity: value })} />
-                    </>
-                  )}
-                  <label>Font Weight 字體粗細：{selectedItem.fontWeight || (selectedItem.bold ? 700 : 400)}</label>
-                  <input type="range" min="100" max="900" step="100" value={selectedItem.fontWeight || (selectedItem.bold ? 700 : 400)} onChange={(e) => updateSelected({ fontWeight: Number(e.target.value), bold: Number(e.target.value) >= 700 })} />
-                  <div className="sp-border-panel">
-                    <label className="sp-check-row">
-                      <input type="checkbox" checked={!!selectedItem.textStrokeEnabled} onChange={(e) => updateSelected({ textStrokeEnabled: e.target.checked })} /> Text Outline 文字描邊
-                    </label>
-                    {selectedItem.textStrokeEnabled && (
-                      <>
-                        <div className="sp-two-col">
-                          <div>
-                            <ColorOpacityField label="Outline Color" color={selectedItem.textStrokeColor} alpha={selectedItem.textStrokeOpacity ?? 1} fallback="#ffffff" onColorChange={(value) => updateSelected({ textStrokeColor: value })} onAlphaChange={(value) => updateSelected({ textStrokeOpacity: value })} />
-                          </div>
-                          <div>
-                            <label>Outline Width</label>
-                            <input type="number" min="1" max="6" value={selectedItem.textStrokeWidth || 1} onChange={(e) => updateSelected({ textStrokeWidth: Number(e.target.value) })} />
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {selectedItem.type === "sticker" && (
-                <>
-                  <label>Shape</label>
-                  <select value={selectedItem.shape} onChange={(e) => updateSelected({ shape: e.target.value })}>
-                    <option value="circle">Circle 圓形</option>
-                    <option value="rounded">Rounded 圓角方形</option>
-                    <option value="pill">Label 標籤</option>
-                    <option value="heart">Heart 愛心</option>
-                    <option value="star">Star 星星</option>
-                  </select>
-                  {selectedItem.shape !== "heart" && selectedItem.shape !== "star" && (
-                    <>
-                      <label>Sticker Text</label>
-                      <input value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} />
-                    </>
-                  )}
-                  <div className="sp-two-col">
-                    <div>
-                      <ColorOpacityField label="Color" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.sticker} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} />
-                    </div>
-                    <div>
-                      <ColorOpacityField label="Text Color" color={selectedItem.textColor} alpha={selectedItem.textColorOpacity ?? 1} fallback={theme.text} onColorChange={(value) => updateSelected({ textColor: value })} onAlphaChange={(value) => updateSelected({ textColorOpacity: value })} />
-                    </div>
-                  </div>
-                  <label>Font Size</label>
-                  <input type="number" value={selectedItem.fontSize} onChange={(e) => updateSelected({ fontSize: Number(e.target.value) })} />
-                </>
-              )}
-
-              {selectedItem.type === "tape" && (
-                <>
-                  <label>Pattern</label>
-                  <select value={selectedItem.pattern} onChange={(e) => updateSelected({ pattern: e.target.value })}>
-                    <option value="solid">Solid 純色</option>
-                    <option value="dot">Dots 點點</option>
-                    <option value="grid">Grid 格紋</option>
-                    <option value="stripe">Stripe 條紋</option>
-                    <option value="checker">Checker 棋盤格</option>
-                    <option value="diagonal">Diagonal 斜紋</option>
-                    <option value="wave">Wave 波浪</option>
-                    <option value="flower">Flower 小花</option>
-                    <option value="heart">Heart 愛心</option>
-                    <option value="star">Star 星星</option>
-                  </select>
-                  <label>Tape Text</label>
-                  <input value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} />
-                  <div className="sp-two-col">
-                    <div>
-                      <ColorOpacityField label="Color" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.sticker} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} />
-                    </div>
-                    <div>
-                      <ColorOpacityField label="Text Color" color={selectedItem.textColor} alpha={selectedItem.textColorOpacity ?? 1} fallback="#ffffff" onColorChange={(value) => updateSelected({ textColor: value })} onAlphaChange={(value) => updateSelected({ textColorOpacity: value })} />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {selectedItem.type === "note" && (
-                <>
-                  <label>Note Style</label>
-                  <select value={selectedItem.variant} onChange={(e) => updateSelected({ variant: e.target.value })}>
-                    <option value="plain">Blank 空白</option>
-                    <option value="lines">Lines 橫線</option>
-                    <option value="dots">Dots 點點</option>
-                    <option value="grid">Grid 方格</option>
-                    <option value="todo">To-do 待辦</option>
-                  </select>
-                  <label>Note Shape 便利貼形狀</label>
-                  <select value={selectedItem.noteShape || "rounded"} onChange={(e) => updateSelected({ noteShape: e.target.value })}>
-                    <option value="rounded">Rounded 圓角便條</option>
-                    <option value="square">Square 方形</option>
-                    <option value="pill">Pill 膠囊</option>
-                    <option value="ticket">Ticket 票券</option>
-                    <option value="tag">Tag 標籤</option>
-                    <option value="bubble">Bubble 對話框</option>
-                  </select>
-                  <label>Title</label>
-                  <input value={selectedItem.title} onChange={(e) => updateSelected({ title: e.target.value })} />
-                  <label>Text</label>
-                  <textarea value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} />
-                  <div className="sp-two-col">
-                    <div>
-                      <ColorOpacityField label="Note Color" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.sticker} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} />
-                    </div>
-                    <div>
-                      <ColorOpacityField label="Text Color" color={selectedItem.textColor} alpha={selectedItem.textColorOpacity ?? 1} fallback={theme.text} onColorChange={(value) => updateSelected({ textColor: value })} onAlphaChange={(value) => updateSelected({ textColorOpacity: value })} />
-                    </div>
-                  </div>
-                  <label>Font Size</label>
-                  <input type="number" value={selectedItem.fontSize} onChange={(e) => updateSelected({ fontSize: Number(e.target.value) })} />
-                </>
-              )}
-
-              {selectedItem.type === "box" && (
-                <>
-                  <label>Box Text / Template Text</label>
-                  <textarea value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} />
-                  <label>Font</label>
-                  <select value={selectedItem.fontFamily} onChange={(e) => updateSelected({ fontFamily: e.target.value })}>
-                    {fontOptions.map((font) => (
-                      <option key={font} value={font}>{font}</option>
-                    ))}
-                  </select>
-                  <div className="sp-two-col">
-                    <div>
-                      <ColorOpacityField label="Box Color" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.soft} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} />
-                    </div>
-                    <div>
-                      <ColorOpacityField label="Text Color" color={selectedItem.textColor} alpha={selectedItem.textColorOpacity ?? 1} fallback={theme.text} onColorChange={(value) => updateSelected({ textColor: value })} onAlphaChange={(value) => updateSelected({ textColorOpacity: value })} />
-                    </div>
-                  </div>
-                  <label>Font Size</label>
-                  <input type="number" min="8" max="64" value={selectedItem.fontSize} onChange={(e) => updateSelected({ fontSize: Number(e.target.value) })} />
-                  <label>Text Align</label>
-                  <select value={selectedItem.align || "center"} onChange={(e) => updateSelected({ align: e.target.value })}>
-                    <option value="left">Left</option>
-                    <option value="center">Center</option>
-                    <option value="right">Right</option>
-                  </select>
-                  <label>Font Weight 字體粗細：{selectedItem.fontWeight || (selectedItem.bold ? 800 : 500)}</label>
-                  <input type="range" min="100" max="900" step="100" value={selectedItem.fontWeight || (selectedItem.bold ? 800 : 500)} onChange={(e) => updateSelected({ fontWeight: Number(e.target.value), bold: Number(e.target.value) >= 700 })} />
-                  <div className="sp-border-panel">
-                    <label className="sp-check-row">
-                      <input type="checkbox" checked={!!selectedItem.textStrokeEnabled} onChange={(e) => updateSelected({ textStrokeEnabled: e.target.checked })} /> Text Outline 文字描邊
-                    </label>
-                    {selectedItem.textStrokeEnabled && (
-                      <div className="sp-two-col">
-                        <div>
-                          <ColorOpacityField label="Outline Color" color={selectedItem.textStrokeColor} alpha={selectedItem.textStrokeOpacity ?? 1} fallback="#ffffff" onColorChange={(value) => updateSelected({ textStrokeColor: value })} onAlphaChange={(value) => updateSelected({ textStrokeOpacity: value })} />
-                        </div>
-                        <div>
-                          <label>Outline Width</label>
-                          <input type="number" min="1" max="6" value={selectedItem.textStrokeWidth || 1} onChange={(e) => updateSelected({ textStrokeWidth: Number(e.target.value) })} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {(selectedItem.type === "polaroid" || selectedItem.type === "image") && (
-                <>
-                  {selectedItem.type === "polaroid" && (
-                    <>
-                      <label>Caption</label>
-                      <input value={selectedItem.caption} onChange={(e) => updateSelected({ caption: e.target.value })} />
-                    </>
-                  )}
-
-                  <label className="sp-file-btn">
-                    Upload / Replace Image
-                    <input type="file" accept="image/*" onChange={handleSelectedImageUpload} />
-                  </label>
-                  <small className="sp-help">選到拍立得時，上傳圖片會直接放進拍立得框；選到一般圖片時，會替換素材圖片。</small>
-
-                  <label>Image Fit / Crop</label>
-                  <select value={selectedItem.fit || "cover"} onChange={(e) => updateSelected({ fit: e.target.value })}>
-                    <option value="cover">Crop Fill 裁切填滿</option>
-                    <option value="contain">Show Full 顯示完整</option>
-                  </select>
-
-                  <label className="sp-check-row">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedItem.cropMode}
-                      onChange={(e) => updateSelected({ cropMode: e.target.checked, fit: e.target.checked ? "cover" : selectedItem.fit })}
-                    />
-                    Drag Crop Mode 拖曳裁切模式
-                  </label>
-                  <small className="sp-help">開啟後，直接在圖片上拖曳，就能選擇要顯示圖片的哪一部分；關閉後拖曳素材本身是移動位置。</small>
-
-                  <label>Crop Zoom 裁切縮放：{selectedItem.cropZoom ?? 100}%</label>
-                  <input
-                    type="range"
-                    min="100"
-                    max="260"
-                    value={selectedItem.cropZoom ?? 100}
-                    onChange={(e) => updateSelected({ cropZoom: Number(e.target.value), fit: "cover" })}
-                  />
-
-                  <div className="sp-two-col">
-                    <div>
-                      <label>Crop X 左右：{selectedItem.cropX ?? 50}%</label>
-                      <input type="range" min="0" max="100" value={selectedItem.cropX ?? 50} onChange={(e) => updateSelected({ cropX: Number(e.target.value), fit: "cover" })} />
-                    </div>
-                    <div>
-                      <label>Crop Y 上下：{selectedItem.cropY ?? 50}%</label>
-                      <input type="range" min="0" max="100" value={selectedItem.cropY ?? 50} onChange={(e) => updateSelected({ cropY: Number(e.target.value), fit: "cover" })} />
-                    </div>
-                  </div>
-                  <small className="sp-help">建議開啟 Drag Crop Mode 後，直接在圖片裡拖曳調整顯示區域；也可以用下方滑桿微調。</small>
-
-                  <button type="button" className="sp-wide-btn" onClick={applyCropToSelected}>
-                    Apply Crop to Image 套用裁切
-                  </button>
-                  <small className="sp-help">按下後會把目前畫面真正裁成新圖片，之後下載也會保持裁切結果。</small>
-
-                  <button type="button" className="sp-wide-btn" onClick={removeBackgroundForSelected}>
-                    Remove White Background 簡易去背
-                  </button>
-                  <small className="sp-help">簡易去背適合白底、淺底圖片；不是 AI 精準去背。</small>
-
-                  <label className="sp-check-row">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedItem.imageRounded}
-                      onChange={(e) => updateSelected({ imageRounded: e.target.checked })}
-                    />
-                    Round Image Corners 圖片圓角
-                  </label>
-                  {selectedItem.imageRounded && (
-                    <>
-                      <label>Image Corner Radius：{selectedItem.imageRadius ?? 12}px</label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="80"
-                        value={selectedItem.imageRadius ?? 12}
-                        onChange={(e) => updateSelected({ imageRadius: Number(e.target.value) })}
-                      />
-                    </>
-                  )}
-
-                  <label className="sp-check-row">
-                    <input
-                      type="checkbox"
-                      checked={selectedItem.frameColor === "transparent"}
-                      onChange={(e) => updateSelected({ frameColor: e.target.checked ? "transparent" : "#fffdf8" })}
-                    />
-                    Transparent Frame 透明框
-                  </label>
-                  {selectedItem.frameColor !== "transparent" && (
-                    <>
-                      <ColorOpacityField label="Frame Color" color={selectedItem.frameColor} alpha={selectedItem.frameOpacity ?? 1} fallback="#fffdf8" onColorChange={(value) => updateSelected({ frameColor: value })} onAlphaChange={(value) => updateSelected({ frameOpacity: value })} />
-                    </>
-                  )}
-                </>
-              )}
-
-              <div className="sp-action-row">
-                <button onClick={duplicateSelected}>Duplicate</button>
-                <button onClick={bringForward}>Front</button>
-                <button onClick={sendBackward}>Back</button>
-              </div>
-              <button className="sp-danger-btn" onClick={deleteSelected}>Delete Selected</button>
+        <aside className="sp-panel sp-settings-panel">
+          <div className="sp-panel-fixed sp-panel-top">
+            <h3><Bi en="Settings" zh="設定" /></h3>
+            <div className="sp-selected-label"><Bi en={`Selected: ${selectedName}`} zh={`已選擇：${selectedName}`} /></div>
+            <div className="sp-tab-buttons">
+              <button className={activeSettingsPanel === "material" ? "active" : ""} onClick={() => setActiveSettingsPanel("material")}><Bi en="Material" zh="素材" /></button>
+              <button className={activeSettingsPanel === "text" ? "active" : ""} onClick={() => setActiveSettingsPanel("text")}><Bi en="Text" zh="文字" /></button>
+              <button className={activeSettingsPanel === "appearance" ? "active" : ""} onClick={() => setActiveSettingsPanel("appearance")}><Bi en="Look" zh="外觀" /></button>
             </div>
-          )}
+          </div>
+
+          <div className="sp-panel-scroll">
+            {!selectedItem ? (
+              <p className="sp-empty-setting">Select an item on the page first.<br />請先點選畫布上的素材。</p>
+            ) : (
+              <div className="sp-setting-fields">
+                {activeSettingsPanel === "text" && (
+                  <div className="sp-tool-section">
+                    {(selectedItem.type === "text" || selectedItem.type === "box") && <><label><Bi en="Text" zh="文字" /></label><textarea value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} /></>}
+                    {selectedItem.type === "sticker" && selectedItem.shape !== "heart" && selectedItem.shape !== "star" && <><label><Bi en="Sticker Text" zh="貼紙文字" /></label><input value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} /></>}
+                    {selectedItem.type === "tape" && <><label><Bi en="Tape Text" zh="紙膠帶文字" /></label><input value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} /></>}
+                    {selectedItem.type === "note" && <><label><Bi en="Title" zh="標題" /></label><input value={selectedItem.title} onChange={(e) => updateSelected({ title: e.target.value })} /><label><Bi en="Note Text" zh="便條內容" /></label><textarea value={selectedItem.text} onChange={(e) => updateSelected({ text: e.target.value })} /></>}
+                    {selectedItem.type === "polaroid" && <><label><Bi en="Caption" zh="照片文字" /></label><input value={selectedItem.caption} onChange={(e) => updateSelected({ caption: e.target.value })} /></>}
+                    {(selectedItem.type === "text" || selectedItem.type === "box" || selectedItem.type === "note" || selectedItem.type === "sticker" || selectedItem.type === "tape" || selectedItem.type === "polaroid") && <>
+                      <label><Bi en="Font" zh="字體" /></label><select value={selectedItem.fontFamily || "Trebuchet MS"} onChange={(e) => updateSelected({ fontFamily: e.target.value })}>{fontOptions.map((font) => <option key={font} value={font}>{font}</option>)}</select>
+                      <label><Bi en="Font Size" zh="字體大小" /></label><input type="number" min="8" max="90" value={selectedItem.fontSize || 18} onChange={(e) => updateSelected({ fontSize: Number(e.target.value) })} />
+                      <label><Bi en={`Font Weight: ${selectedItem.fontWeight || (selectedItem.bold ? 700 : 400)}`} zh={`字體粗細：${selectedItem.fontWeight || (selectedItem.bold ? 700 : 400)}`} /></label><input type="range" min="100" max="900" step="100" value={selectedItem.fontWeight || (selectedItem.bold ? 700 : 400)} onChange={(e) => updateSelected({ fontWeight: Number(e.target.value), bold: Number(e.target.value) >= 700 })} />
+                      <ColorOpacityField label="Text Color｜文字顏色" color={selectedItem.type === "text" ? selectedItem.color : selectedItem.textColor} alpha={selectedItem.type === "text" ? (selectedItem.colorOpacity ?? 1) : (selectedItem.textColorOpacity ?? 1)} fallback={theme.text} onColorChange={(value) => selectedItem.type === "text" ? updateSelected({ color: value }) : updateSelected({ textColor: value })} onAlphaChange={(value) => selectedItem.type === "text" ? updateSelected({ colorOpacity: value }) : updateSelected({ textColorOpacity: value })} />
+                      <label className="sp-check-row"><input type="checkbox" checked={!!selectedItem.textStrokeEnabled} onChange={(e) => updateSelected({ textStrokeEnabled: e.target.checked })} /> <Bi en="Text Outline" zh="文字外框" /></label>
+                      {selectedItem.textStrokeEnabled && <div className="sp-two-col"><ColorOpacityField label="Outline Color｜外框顏色" color={selectedItem.textStrokeColor} alpha={selectedItem.textStrokeOpacity ?? 1} fallback="#ffffff" onColorChange={(value) => updateSelected({ textStrokeColor: value })} onAlphaChange={(value) => updateSelected({ textStrokeOpacity: value })} /><div><label><Bi en="Outline Width" zh="外框粗細" /></label><input type="number" min="1" max="8" value={selectedItem.textStrokeWidth || 1} onChange={(e) => updateSelected({ textStrokeWidth: Number(e.target.value) })} /></div></div>}
+                    </>}
+                    {selectedItem.type === "image" || selectedItem.type === "drawing" ? <p className="sp-help">This selected item has no editable text.<br />此素材沒有可編輯文字。</p> : null}
+                  </div>
+                )}
+
+                {activeSettingsPanel === "material" && (
+                  <div className="sp-tool-section">
+                    {selectedItem.type === "sticker" && <><label><Bi en="Sticker Shape" zh="貼紙形狀" /></label><select value={selectedItem.shape} onChange={(e) => updateSelected({ shape: e.target.value })}><option value="circle">Circle</option><option value="rounded">Rounded</option><option value="pill">Label</option><option value="heart">Heart</option><option value="star">Star</option></select><ColorOpacityField label="Sticker Color｜貼紙顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.sticker} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
+                    {selectedItem.type === "tape" && <><label><Bi en="Washi Pattern" zh="紙膠帶花紋" /></label><select value={selectedItem.pattern} onChange={(e) => updateSelected({ pattern: e.target.value })}><option value="solid">Solid</option><option value="dot">Dots</option><option value="grid">Grid</option><option value="stripe">Stripe</option><option value="checker">Checker</option><option value="diagonal">Diagonal</option><option value="wave">Wave</option><option value="flower">Flower</option><option value="heart">Heart</option><option value="star">Star</option></select><ColorOpacityField label="Tape Color｜紙膠帶顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.tape} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
+                    {selectedItem.type === "note" && <><label><Bi en="Paper Style" zh="紙張樣式" /></label><select value={selectedItem.variant} onChange={(e) => updateSelected({ variant: e.target.value })}><option value="blank">Blank</option><option value="lined">Lines</option><option value="dots">Dots</option><option value="grid">Grid</option><option value="todo">To-do</option></select><label><Bi en="Note Shape" zh="便利貼形狀" /></label><select value={selectedItem.noteShape || "rounded"} onChange={(e) => updateSelected({ noteShape: e.target.value })}><option value="rounded">Rounded</option><option value="square">Square</option><option value="pill">Pill</option><option value="ticket">Ticket</option><option value="tag">Tag</option><option value="bubble">Bubble</option></select><ColorOpacityField label="Note Color｜便利貼顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.note} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
+                    {(selectedItem.type === "polaroid" || selectedItem.type === "image") && <><label className="sp-file-btn"><Bi en="Upload / Replace" zh="上傳替換" /><input type="file" accept="image/*" onChange={handleSelectedImageUpload} /></label><ColorOpacityField label="Frame Color｜相框顏色" color={selectedItem.frameColor} alpha={selectedItem.frameOpacity ?? 1} fallback="#fffdf8" onColorChange={(value) => updateSelected({ frameColor: value })} onAlphaChange={(value) => updateSelected({ frameOpacity: value })} /><label className="sp-check-row"><input type="checkbox" checked={selectedItem.frameColor === "transparent"} onChange={(e) => updateSelected({ frameColor: e.target.checked ? "transparent" : "#fffdf8" })} /> <Bi en="Transparent Frame" zh="透明框" /></label></>}
+                    {selectedItem.type === "text" || selectedItem.type === "box" ? <><label className="sp-check-row"><input type="checkbox" checked={selectedItem.bgColor === "transparent"} onChange={(e) => updateSelected({ bgColor: e.target.checked ? "transparent" : theme.soft })} /> <Bi en="Transparent Background" zh="透明背景" /></label>{selectedItem.bgColor !== "transparent" && <ColorOpacityField label="Background Color｜背景顏色" color={selectedItem.bgColor || selectedItem.color} alpha={selectedItem.bgOpacity ?? selectedItem.colorOpacity ?? 1} fallback={theme.soft} onColorChange={(value) => selectedItem.type === "text" ? updateSelected({ bgColor: value }) : updateSelected({ color: value })} onAlphaChange={(value) => selectedItem.type === "text" ? updateSelected({ bgOpacity: value }) : updateSelected({ colorOpacity: value })} />}</> : null}
+                  </div>
+                )}
+
+                {activeSettingsPanel === "appearance" && (
+                  <div className="sp-tool-section">
+                    {selectedItem.type !== "drawing" && <><div className="sp-two-col"><div><label>X</label><input type="number" value={Math.round(selectedItem.x)} onChange={(e) => updateSelected({ x: Number(e.target.value) })} /></div><div><label>Y</label><input type="number" value={Math.round(selectedItem.y)} onChange={(e) => updateSelected({ y: Number(e.target.value) })} /></div></div><div className="sp-two-col"><div><label>Width</label><input type="number" value={selectedItem.width} onChange={(e) => updateSelected({ width: Number(e.target.value) })} /></div><div><label>Height</label><input type="number" value={selectedItem.height} onChange={(e) => updateSelected({ height: Number(e.target.value) })} /></div></div><label>Rotation Angle：{selectedItem.rotation || 0}°</label><input type="range" min="-180" max="180" value={selectedItem.rotation || 0} onChange={(e) => updateSelected({ rotation: Number(e.target.value) })} /></>}
+                    <label>Opacity：{Math.round((selectedItem.opacity ?? 1) * 100)}%</label><input type="range" min="0" max="100" value={Math.round((selectedItem.opacity ?? 1) * 100)} onChange={(e) => updateSelected({ opacity: Number(e.target.value) / 100 })} />
+                    <div className="sp-border-panel"><label className="sp-check-row"><input type="checkbox" checked={itemHasBorder(selectedItem)} onChange={(e) => updateSelected({ borderEnabled: e.target.checked })} /> <Bi en="Show Border" zh="顯示邊框" /></label><div className="sp-two-col"><ColorOpacityField label="Border Color｜邊框顏色" color={selectedItem.borderColor} alpha={selectedItem.borderOpacity ?? 1} fallback={theme.border} onColorChange={(value) => updateSelected({ borderColor: value, borderEnabled: true })} onAlphaChange={(value) => updateSelected({ borderOpacity: value, borderEnabled: true })} /><div><label><Bi en="Border Width" zh="邊框粗細" /></label><input type="number" min="0" max="12" value={selectedItem.borderWidth ?? 1} onChange={(e) => updateSelected({ borderWidth: Number(e.target.value), borderEnabled: Number(e.target.value) > 0 })} /></div></div><label>Rounded Corner：{selectedItem.borderRadius ?? 12}px</label><input type="range" min="0" max="100" value={selectedItem.borderRadius ?? 12} onChange={(e) => updateSelected({ borderRadius: Number(e.target.value) })} /></div>
+                    {(selectedItem.type === "polaroid" || selectedItem.type === "image") && <><label><Bi en="Image Fit / Crop" zh="圖片裁切" /></label><select value={selectedItem.fit || "cover"} onChange={(e) => updateSelected({ fit: e.target.value })}><option value="cover">Crop Fill</option><option value="contain">Show Full</option></select><label className="sp-check-row"><input type="checkbox" checked={!!selectedItem.cropMode} onChange={(e) => updateSelected({ cropMode: e.target.checked, fit: e.target.checked ? "cover" : selectedItem.fit })} /> <Bi en="Drag Crop Mode" zh="拖曳裁切" /></label><label>Crop Zoom：{selectedItem.cropZoom ?? 100}%</label><input type="range" min="100" max="260" value={selectedItem.cropZoom ?? 100} onChange={(e) => updateSelected({ cropZoom: Number(e.target.value), fit: "cover" })} /><div className="sp-two-col"><div><label>Crop X：{selectedItem.cropX ?? 50}%</label><input type="range" min="0" max="100" value={selectedItem.cropX ?? 50} onChange={(e) => updateSelected({ cropX: Number(e.target.value), fit: "cover" })} /></div><div><label>Crop Y：{selectedItem.cropY ?? 50}%</label><input type="range" min="0" max="100" value={selectedItem.cropY ?? 50} onChange={(e) => updateSelected({ cropY: Number(e.target.value), fit: "cover" })} /></div></div><button type="button" className="sp-wide-btn" onClick={applyCropToSelected}><Bi en="Apply Crop" zh="套用裁切" /></button><button type="button" className="sp-wide-btn" onClick={removeBackgroundForSelected}><Bi en="Remove BG" zh="白底去背" /></button><label className="sp-check-row"><input type="checkbox" checked={!!selectedItem.imageRounded} onChange={(e) => updateSelected({ imageRounded: e.target.checked })} /> <Bi en="Round Image Corners" zh="圖片圓角" /></label>{selectedItem.imageRounded && <><label>Image Corner Radius：{selectedItem.imageRadius ?? 12}px</label><input type="range" min="0" max="90" value={selectedItem.imageRadius ?? 12} onChange={(e) => updateSelected({ imageRadius: Number(e.target.value) })} /></>}</>}
+                    <div className="sp-action-row"><button onClick={duplicateSelected}><Bi en="Duplicate" zh="複製" /></button><button onClick={bringForward}><Bi en="Front" zh="上層" /></button><button onClick={sendBackward}><Bi en="Back" zh="下層" /></button></div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="sp-panel-fixed sp-panel-bottom sp-setting-bottom-actions">
+            <button className="sp-wide-btn" disabled={!selectedItem} onClick={resetSelectedDefaults}><Bi en="Reset" zh="重設" /></button>
+            <button className="sp-danger-btn" disabled={!selectedItem} onClick={deleteSelected}><Bi en="Delete Selected" zh="刪除所選" /></button>
+          </div>
         </aside>
       </div>
+
+      {worksOpen && (
+        <div className="sp-work-modal-backdrop" role="dialog" aria-modal="true" onMouseDown={(e) => { if (e.target === e.currentTarget) closeWorksPicker(); }}>
+          <div className="sp-work-modal">
+            <div className="sp-work-modal-head">
+              <div>
+                <h3>Import from My Storage</h3>
+                <p>從 My Storage 選擇想放進手帳的素材</p>
+              </div>
+              <button type="button" className="sp-modal-close" onClick={closeWorksPicker}>×</button>
+            </div>
+
+            <div className="sp-work-filter-row">
+              {[
+                ["all", "All", "全部"],
+                ["postcard", "Postcard", "明信片"],
+                ["photobooth", "Booth", "拍貼"],
+                ["scrapbook", "Scrapbook", "手帳"]
+              ].map(([key, en, zh]) => (
+                <button key={key} type="button" className={worksFilter === key ? "active" : ""} onClick={() => setWorksFilter(key)}>
+                  <Bi en={en} zh={zh} />
+                </button>
+              ))}
+            </div>
+
+            {filteredSavedWorks.length === 0 ? (
+              <div className="sp-work-empty">
+                <strong>No saved works found.</strong>
+                <span>目前沒有可匯入的作品，請先到 Postcard / Booth / Scrapbook 儲存作品到 My Storage。</span>
+              </div>
+            ) : (
+              <div className="sp-work-picker-grid">
+                {filteredSavedWorks.map((work) => (
+                  <article className="sp-work-card" key={`${work.sourceType || work.type}-${work.id}`}>
+                    <img src={work.image} alt={work.title || "saved work"} />
+                    <div className="sp-work-card-info">
+                      <strong>{workTypeLabel(work.sourceType || work.type)}</strong>
+                      <span>{work.title || "Untitled Work"}</span>
+                      <small>{work.createdAt || work.subtitle || "Saved work"}</small>
+                    </div>
+                    <div className="sp-work-card-actions">
+                      <button type="button" onClick={() => { addImageCard(work.image, work.title || "Imported Work"); closeWorksPicker(); }}>
+                        <Bi en="Use Image" zh="作為圖片" />
+                      </button>
+                      <button type="button" onClick={() => { addPolaroid(work.image); closeWorksPicker(); }}>
+                        <Bi en="Use Polaroid" zh="作為拍立得" />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3269,4 +3261,326 @@ html, body {
   }
 }
 
+
+/* Life Tracker scrapbook layout refinements */
+.sp-page { max-width: 1500px !important; width: 100%; padding: 0 16px 24px; box-sizing: border-box; overflow-x: hidden; }
+.sp-layout { grid-template-columns: 250px minmax(0, 1fr) 250px !important; gap: 34px !important; align-items: start; overflow-x: hidden; }
+.sp-panel { max-height: calc(100vh - 110px); overflow: hidden; display: flex; flex-direction: column; position: sticky; top: 12px; }
+.sp-panel-scroll { overflow-y: auto; overflow-x: hidden; padding-right: 4px; flex: 1 1 auto; }
+.sp-panel-fixed { flex: 0 0 auto; }
+.sp-panel-top { padding-bottom: 10px; border-bottom: 1px solid rgba(130, 92, 60, .12); margin-bottom: 10px; }
+.sp-panel-bottom { padding-top: 10px; border-top: 1px solid rgba(130, 92, 60, .12); margin-top: 10px; }
+.sp-tab-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
+.sp-tab-buttons button { border: 0; border-radius: 999px; padding: 8px 5px; background: #f4e6d8; color: #6b442b; font-weight: 800; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(120,80,50,.08); }
+.sp-tab-buttons button.active { background: linear-gradient(135deg, #7d4e32, #bf8052); color: white; box-shadow: 0 8px 18px rgba(94, 57, 35, .18); }
+.sp-tool-section { display: grid; gap: 10px; }
+.sp-canvas-wrap { min-width: 0; overflow-x: hidden; align-items: center; }
+.sp-canvas-toolbar { width: min(100%, 1000px); }
+.sp-canvas { max-width: 100%; flex: 0 0 auto; }
+.sp-color-field input[type="color"] { width: 100%; height: 36px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.sp-color-head { align-items: center; }
+.sp-color-swatch { width: 42px !important; height: 24px !important; border-radius: 8px !important; border: 2px solid rgba(255,255,255,.8); box-shadow: 0 3px 10px rgba(0,0,0,.16); }
+.sp-history-btn, .sp-wide-btn, .sp-file-btn, .sp-tool-grid button, .sp-template-actions button, .sp-action-row button, .sp-danger-btn { transition: transform .15s ease, box-shadow .15s ease, filter .15s ease; }
+.sp-history-btn:hover, .sp-wide-btn:hover, .sp-file-btn:hover, .sp-tool-grid button:hover, .sp-template-actions button:hover, .sp-action-row button:hover { transform: translateY(-1px); filter: brightness(1.03); }
+@media (max-width: 1120px) { .sp-layout { grid-template-columns: 1fr !important; } .sp-panel { position: relative; max-height: none; } .sp-panel-scroll { overflow: visible; } }
+
+
+/* Life Tracker final UI requested refinements */
+.sp-page { max-width: 1480px !important; }
+.sp-layout { grid-template-columns: 250px minmax(0, 900px) 250px !important; gap: 34px !important; justify-content: center; }
+.sp-panel { max-height: calc(100vh - 96px) !important; overflow: hidden !important; }
+.sp-panel-scroll { overflow-y: auto !important; overflow-x: hidden !important; }
+.sp-canvas-wrap { display: flex; justify-content: center; min-width: 0; overflow: visible !important; }
+.sp-canvas-toolbar { display: none !important; }
+.sp-history-btn { border-radius: 999px !important; padding: 10px 14px !important; background: linear-gradient(135deg, #8a5633, #c4865c) !important; color: #fff !important; }
+.sp-redo-btn { background: linear-gradient(135deg, #5263c9, #8e70d4) !important; }
+.sp-tab-buttons button { min-height: 42px; line-height: 1.15; }
+.sp-brush-preview { display: grid; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255,255,255,.62); border: 1px solid rgba(130,92,60,.14); }
+.sp-brush-preview span { font-size: 12px; font-weight: 800; color: #6b442b; }
+.sp-brush-preview i { display: block; height: 24px; border-radius: 999px; background: var(--brush-color); opacity: .95; }
+.sp-brush-preview-pen i { height: var(--brush-size); }
+.sp-brush-preview-marker i { height: calc(var(--brush-size) * 1.6); opacity: .7; }
+.sp-brush-preview-pencil i { height: var(--brush-size); background: repeating-linear-gradient(90deg, var(--brush-color) 0 7px, transparent 7px 10px); }
+.sp-brush-preview-highlighter i { height: calc(var(--brush-size) * 2.1); opacity: .45; }
+.sp-brush-preview-dashed i { height: var(--brush-size); background: repeating-linear-gradient(90deg, var(--brush-color) 0 18px, transparent 18px 28px); }
+.sp-brush-preview-neon i { height: var(--brush-size); box-shadow: 0 0 12px var(--brush-color), 0 0 20px var(--brush-color); }
+.sp-template { inset: clamp(18px, 5%, 48px) !important; }
+.sp-template-title span { font-size: clamp(22px, 5vw, 42px); }
+.sp-template-title strong { font-size: clamp(14px, 2.5vw, 24px); }
+.sp-calendar-grid { height: calc(100% - 120px); grid-template-rows: repeat(6, minmax(0, 1fr)); }
+.sp-calendar-grid div { height: auto !important; min-height: 0; }
+.sp-weekly-grid { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)) !important; height: calc(100% - 86px); }
+.sp-weekly-grid > div { min-height: 0 !important; height: auto !important; }
+.sp-week-bottom { display: none !important; }
+.sp-daily-grid { height: calc(100% - 92px) !important; min-height: 0; }
+.sp-daily-grid section { min-height: 0; overflow: hidden; }
+@media (max-width: 1180px) { .sp-canvas { transform: none !important; margin-bottom: 0 !important; } }
+@media (max-width: 1120px) { .sp-panel { max-height: none !important; overflow: visible !important; } .sp-panel-scroll { overflow: visible !important; } }
+
+
+/* Final compact UI fixes */
+.sp-heading-compact { display: none !important; }
+.sp-bi { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1.05; white-space: nowrap; }
+.sp-bi span { display: block; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.sp-panel label .sp-bi { align-items: flex-start; }
+.sp-help br, .sp-empty-setting br { display: block; }
+.sp-layout { grid-template-columns: 270px minmax(0, 860px) 270px !important; gap: 26px !important; justify-content: center; align-items: start; }
+.sp-panel { width: 270px; box-sizing: border-box; padding: 16px !important; max-height: calc(100vh - 24px) !important; overflow: hidden !important; }
+.sp-panel-scroll { overflow-y: auto !important; overflow-x: hidden !important; padding: 2px 6px 2px 2px; min-height: 0; }
+.sp-tool-section, .sp-setting-fields { min-width: 0; overflow: visible; }
+.sp-panel *, .sp-canvas, .sp-item, .sp-item * { box-sizing: border-box; }
+.sp-panel input, .sp-panel textarea, .sp-panel select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.sp-tab-buttons { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+.sp-tab-buttons button { min-width: 0; min-height: 48px; padding: 7px 3px !important; overflow: hidden; }
+.sp-tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sp-tool-grid button, .sp-template-actions button, .sp-action-row button, .sp-step-menu-panel button, .sp-wide-btn, .sp-danger-btn, .sp-file-btn, .sp-export-btn { min-height: 48px; display: inline-flex !important; align-items: center; justify-content: center; }
+.sp-step-menu-panel { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.sp-step-menu-panel button { padding: 7px 2px !important; }
+.sp-history-btn { border-radius: 999px !important; }
+.sp-export-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-bottom: 8px; }
+.sp-export-grid .sp-wide-btn { margin-top: 0; padding-inline: 4px; }
+.sp-tool-bottom-actions .sp-danger-btn, .sp-setting-bottom-actions .sp-danger-btn, .sp-setting-bottom-actions .sp-wide-btn { margin-top: 8px; }
+.sp-canvas-wrap { overflow: visible !important; min-width: 0; display: flex; justify-content: center; align-items: flex-start; padding: 0 0 22px; }
+.sp-canvas { max-width: none !important; flex: 0 0 auto; box-sizing: border-box; }
+.sp-template { inset: clamp(16px, 4%, 40px) !important; overflow: hidden; }
+.sp-template-title { margin-bottom: clamp(8px, 1.8%, 18px); padding: clamp(8px, 1.4%, 14px) clamp(10px, 2%, 18px); border-radius: clamp(10px, 2%, 20px); }
+.sp-template-title span { font-size: clamp(18px, 4vw, 34px) !important; line-height: 1; }
+.sp-template-title strong { font-size: clamp(12px, 2vw, 19px) !important; }
+.sp-week-head { gap: clamp(3px, 1%, 7px); margin-bottom: clamp(3px, 1%, 8px); }
+.sp-week-head b { padding: clamp(4px, 1.2%, 8px) 0; font-size: clamp(9px, 1.8vw, 13px); }
+.sp-calendar-grid { gap: clamp(3px, 1%, 7px) !important; height: calc(100% - 104px) !important; grid-template-rows: repeat(6, minmax(0, 1fr)); }
+.sp-calendar-grid div { min-height: 0 !important; padding: clamp(4px, 1%, 8px) !important; overflow: hidden; }
+.sp-weekly-grid { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; gap: clamp(4px, 1%, 8px) !important; height: calc(100% - 86px) !important; }
+.sp-weekly-grid > div { min-height: 0 !important; padding: clamp(5px, 1.2%, 10px) !important; overflow: hidden; }
+.sp-weekly-grid h4 { font-size: clamp(10px, 1.8vw, 14px) !important; margin-bottom: 4px; }
+.sp-weekly-grid small { font-size: clamp(9px, 1.5vw, 12px); }
+.sp-daily-grid { height: calc(100% - 86px) !important; gap: clamp(7px, 1.5%, 14px) !important; }
+.sp-daily-grid section { overflow: hidden; padding: clamp(8px, 1.6%, 14px) !important; }
+.sp-daily-grid h4 { font-size: clamp(11px, 2vw, 16px); }
+.sp-color-head { display: block !important; }
+.sp-color-swatch { display: none !important; }
+.sp-color-field input[type="color"] { height: 46px !important; border-radius: 14px !important; border: 1px solid rgba(138,86,51,.18) !important; background: rgba(255,255,255,.72) !important; padding: 3px !important; }
+.sp-color-field input[type="color"]::-webkit-color-swatch { border-radius: 11px !important; }
+.sp-color-field input[type="color"]::-moz-color-swatch { border-radius: 11px !important; }
+.sp-action-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1220px) { .sp-layout { grid-template-columns: 1fr !important; } .sp-panel { position: relative; width: min(100%, 860px); max-height: none !important; } .sp-panel-scroll { overflow: visible !important; } }
+
+
+/* Final requested layout/action fixes */
+.sp-layout { grid-template-columns: 260px minmax(0, 720px) 260px !important; gap: 22px !important; align-items: start; justify-content: center; max-width: 1280px; margin: 0 auto; }
+.sp-page { max-width: 1320px !important; padding-inline: 10px !important; overflow-x: hidden !important; }
+.sp-panel { width: 260px !important; max-height: calc(100vh - 24px) !important; overflow: hidden !important; padding: 16px !important; border-radius: 24px !important; }
+.sp-panel-scroll { overflow-y: auto !important; overflow-x: hidden !important; padding: 4px 8px 4px 2px !important; }
+.sp-canvas-wrap { width: 720px !important; max-width: 720px !important; overflow: visible !important; padding-inline: 0 !important; }
+.sp-canvas { max-width: 720px !important; max-height: 760px !important; }
+.sp-tool-grid button, .sp-template-actions button, .sp-action-row button, .sp-step-menu-panel button, .sp-wide-btn, .sp-danger-btn, .sp-file-btn { width: 100%; max-width: 100%; min-height: 56px !important; padding: 9px 8px !important; overflow: visible !important; border-radius: 18px !important; }
+.sp-file-btn { display: inline-flex !important; align-items: center !important; justify-content: center !important; background: linear-gradient(135deg, #fff8ef, #f2dfc9) !important; color: #684326 !important; border: 1px solid rgba(138, 86, 51, .16) !important; box-shadow: 0 8px 18px rgba(106, 67, 38, .10) !important; font-weight: 900 !important; cursor: pointer !important; }
+.sp-file-btn:hover { transform: translateY(-1px); filter: brightness(1.02); }
+.sp-bi { width: 100%; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; gap: 2px !important; line-height: 1.05 !important; white-space: nowrap !important; }
+.sp-bi span { display: block !important; white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; max-width: none !important; font-size: 11.5px !important; }
+.sp-tab-buttons button .sp-bi span, .sp-history-btn .sp-bi span { font-size: 11px !important; }
+.sp-template-actions { grid-template-columns: 1fr !important; }
+.sp-template { inset: clamp(12px, 3.5%, 26px) !important; overflow: hidden !important; }
+.sp-calendar-grid { height: calc(100% - 98px) !important; gap: clamp(2px, .7%, 5px) !important; }
+.sp-calendar-grid div { padding: clamp(3px, .8%, 6px) !important; }
+.sp-weekly-grid { height: calc(100% - 78px) !important; gap: clamp(3px, .8%, 6px) !important; }
+.sp-weekly-grid > div { padding: clamp(4px, 1%, 7px) !important; }
+.sp-daily-grid { height: calc(100% - 78px) !important; gap: clamp(5px, 1%, 10px) !important; }
+.sp-daily-grid section { padding: clamp(6px, 1.2%, 10px) !important; }
+.sp-color-head { margin-bottom: 4px !important; }
+.sp-color-field input[type="color"] { height: 50px !important; }
+@media (max-width: 1280px) { .sp-layout { grid-template-columns: 248px minmax(0, 660px) 248px !important; gap: 18px !important; } .sp-panel { width: 248px !important; } .sp-canvas-wrap { width: 660px !important; max-width: 660px !important; } .sp-canvas { max-width: 660px !important; } }
+@media (max-width: 1120px) { .sp-layout { grid-template-columns: 1fr !important; } .sp-panel, .sp-canvas-wrap { width: min(100%, 720px) !important; max-width: 100% !important; } .sp-panel { position: relative !important; max-height: none !important; } .sp-panel-scroll { overflow: visible !important; } }
+
+
+/* FINAL UI polish requested 2: safe panels, clean buttons, non-overflow canvas */
+.sp-page { max-width: 1280px !important; padding-inline: 12px !important; overflow-x: hidden !important; }
+.sp-layout { grid-template-columns: 270px minmax(0, 660px) 270px !important; gap: 18px !important; justify-content: center !important; align-items: start !important; max-width: 1240px !important; margin: 0 auto !important; overflow: visible !important; }
+.sp-panel { width: 270px !important; max-height: calc(100vh - 26px) !important; padding: 17px !important; overflow: hidden !important; border-radius: 24px !important; }
+.sp-panel-scroll { overflow-y: auto !important; overflow-x: hidden !important; padding: 6px 9px 6px 3px !important; }
+.sp-canvas-wrap { width: 660px !important; max-width: 660px !important; min-width: 0 !important; overflow: visible !important; padding-inline: 0 !important; display: flex !important; justify-content: center !important; align-items: flex-start !important; }
+.sp-canvas { max-width: 660px !important; max-height: 730px !important; }
+.sp-tool-grid button, .sp-template-actions button, .sp-action-row button, .sp-step-menu-panel button, .sp-wide-btn, .sp-danger-btn, .sp-file-btn, .sp-history-btn { min-height: 58px !important; padding: 10px 10px !important; border-radius: 20px !important; overflow: visible !important; line-height: 1.1 !important; }
+.sp-bi { width: 100% !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; gap: 3px !important; line-height: 1.08 !important; white-space: nowrap !important; overflow: visible !important; }
+.sp-bi span { display: block !important; white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; max-width: none !important; font-size: 12.4px !important; }
+.sp-tab-buttons button .sp-bi span, .sp-history-btn .sp-bi span, .sp-step-menu-panel button .sp-bi span { font-size: 11.8px !important; }
+.sp-file-btn, .sp-wide-btn, .sp-danger-btn, .sp-tool-grid button, .sp-template-actions button, .sp-action-row button { box-shadow: 0 8px 18px rgba(106, 67, 38, .10) !important; }
+.sp-template { inset: clamp(10px, 3%, 24px) !important; overflow: hidden !important; }
+.sp-template-title { margin-bottom: clamp(6px, 1.5%, 14px) !important; }
+.sp-calendar-grid { height: calc(100% - 96px) !important; gap: clamp(2px, .7%, 5px) !important; }
+.sp-calendar-grid div { min-height: 0 !important; overflow: hidden !important; padding: clamp(3px, .7%, 6px) !important; }
+.sp-weekly-grid { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; height: calc(100% - 78px) !important; gap: clamp(3px, .8%, 6px) !important; }
+.sp-weekly-grid > div { min-height: 0 !important; height: auto !important; overflow: hidden !important; padding: clamp(4px, 1%, 7px) !important; }
+.sp-weekly-grid h4 { font-size: clamp(9px, 1.7vw, 13px) !important; line-height: 1.05 !important; }
+.sp-weekly-grid small { font-size: clamp(8px, 1.3vw, 11px) !important; }
+.sp-daily-grid { height: calc(100% - 78px) !important; gap: clamp(5px, 1%, 9px) !important; }
+.sp-daily-grid section { min-height: 0 !important; overflow: hidden !important; padding: clamp(6px, 1.1%, 9px) !important; }
+.sp-daily-grid h4 { font-size: clamp(10px, 1.8vw, 14px) !important; }
+.sp-color-head { display: block !important; }
+.sp-color-swatch { display: none !important; }
+.sp-color-field input[type="color"] { height: 52px !important; border-radius: 16px !important; border: 1px solid rgba(138,86,51,.18) !important; background: rgba(255,255,255,.76) !important; padding: 4px !important; }
+.sp-color-field input[type="color"]::-webkit-color-swatch { border-radius: 12px !important; }
+.sp-color-field input[type="color"]::-moz-color-swatch { border-radius: 12px !important; }
+@media (max-width: 1220px) { .sp-layout { grid-template-columns: 1fr !important; max-width: 100% !important; } .sp-panel, .sp-canvas-wrap { width: min(100%, 760px) !important; max-width: 100% !important; } .sp-panel { position: relative !important; max-height: none !important; } .sp-panel-scroll { overflow: visible !important; } }
+
+
+/* My Storage import picker: modal so the Tools column never widens */
+.sp-work-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(44, 28, 18, 0.38);
+  backdrop-filter: blur(6px);
+}
+
+.sp-work-modal {
+  width: min(920px, calc(100vw - 36px));
+  max-height: min(82vh, 760px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 28px;
+  background: linear-gradient(180deg, #fffaf4, #f7eadc);
+  border: 1px solid rgba(120, 80, 50, .18);
+  box-shadow: 0 28px 80px rgba(42, 25, 14, .28);
+}
+
+.sp-work-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid rgba(120, 80, 50, .12);
+}
+
+.sp-work-modal-head h3 {
+  margin: 0;
+  font-size: 22px;
+  color: #5d3720;
+}
+
+.sp-work-modal-head p {
+  margin: 6px 0 0;
+  color: #8b674c;
+}
+
+.sp-modal-close {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 0;
+  background: #fff2e6;
+  color: #6a3c22;
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sp-work-filter-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 22px;
+}
+
+.sp-work-filter-row button,
+.sp-work-card-actions button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 18px;
+  padding: 8px 10px;
+  background: #fff5ea;
+  color: #6c442a;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(120, 80, 50, .12), 0 8px 18px rgba(87, 56, 34, .08);
+  cursor: pointer;
+}
+
+.sp-work-filter-row button.active {
+  background: linear-gradient(135deg, #7d4e32, #bf8052);
+  color: white;
+}
+
+.sp-work-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  padding: 4px 22px 22px;
+  overflow-y: auto;
+}
+
+.sp-work-card {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .82);
+  border: 1px solid rgba(120, 80, 50, .14);
+  box-shadow: 0 12px 30px rgba(87, 56, 34, .10);
+}
+
+.sp-work-card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: #ead8c6;
+}
+
+.sp-work-card-info {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 8px;
+}
+
+.sp-work-card-info strong,
+.sp-work-card-info span,
+.sp-work-card-info small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-work-card-info strong { color: #5d3720; font-size: 13px; }
+.sp-work-card-info span { color: #7b5740; font-size: 13px; font-weight: 800; }
+.sp-work-card-info small { color: #a28268; font-size: 11px; }
+
+.sp-work-card-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.sp-work-empty {
+  margin: 4px 22px 22px;
+  padding: 24px;
+  border-radius: 22px;
+  background: rgba(255,255,255,.72);
+  border: 1px dashed rgba(120,80,50,.24);
+  color: #7b5740;
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 680px) {
+  .sp-work-filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sp-work-modal-backdrop { padding: 12px; }
+}
+
+
+/* Integrity fix: click/drag selection and uploaded-template reset */
+.sp-item { touch-action: none !important; user-select: none !important; cursor: grab !important; }
+.sp-item.sp-selected { cursor: move !important; }
+.sp-canvas { overflow: hidden !important; }
+.sp-uploaded-template { pointer-events: none !important; }
+.sp-template { pointer-events: none !important; }
+.sp-template-actions button, .sp-file-btn, .sp-wide-btn { box-sizing: border-box !important; }
 `;

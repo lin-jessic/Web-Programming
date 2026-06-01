@@ -10,6 +10,7 @@ import "./App.css";
 const STORAGE_KEYS = {
   postcards: "stampStudio_savedPostcards",
   photoBooths: "stampStudio_savedPhotoBooths",
+  scrapbooks: "lifeTracker_savedScrapbooks",
   gallery: "stampStudio_gallery",
   comments: "stampStudio_comments",
   postcardConfig: "stampStudio3DData",
@@ -20,6 +21,7 @@ const STORAGE_KEYS = {
 
 const MAX_POSTCARDS = 30;
 const MAX_PHOTOBOOTHS = 30;
+const MAX_SCRAPBOOKS = 30;
 const MAX_GALLERY = 30;
 const MAX_COMMENTS = 50;
 
@@ -128,7 +130,7 @@ function stripImages(list) {
 }
 
 async function migrateStoredImagesToIndexedDB() {
-  const keys = [STORAGE_KEYS.postcards, STORAGE_KEYS.photoBooths, STORAGE_KEYS.gallery];
+  const keys = [STORAGE_KEYS.postcards, STORAGE_KEYS.photoBooths, STORAGE_KEYS.scrapbooks, STORAGE_KEYS.gallery];
 
   for (const key of keys) {
     const list = getList(key);
@@ -153,6 +155,7 @@ async function migrateStoredImagesToIndexedDB() {
 async function resetLocalDemoData() {
   localStorage.removeItem(STORAGE_KEYS.postcards);
   localStorage.removeItem(STORAGE_KEYS.photoBooths);
+  localStorage.removeItem(STORAGE_KEYS.scrapbooks);
   localStorage.removeItem(STORAGE_KEYS.gallery);
   localStorage.removeItem(STORAGE_KEYS.comments);
   localStorage.removeItem(STORAGE_KEYS.postcardConfig);
@@ -1372,6 +1375,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
 function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
   const [postcards, setPostcards] = useState([]);
   const [photoBooths, setPhotoBooths] = useState([]);
+  const [scrapbooks, setScrapbooks] = useState([]);
   const [filter, setFilter] = useState("all");
   const [sharePreviewItem, setSharePreviewItem] = useState(null);
   const [sharePreviewCaption, setSharePreviewCaption] = useState("");
@@ -1385,8 +1389,13 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
       (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
     );
 
+    const myScrapbooks = getList(STORAGE_KEYS.scrapbooks).filter(
+      (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
+    );
+
     setPostcards(await attachImages(myPostcards));
     setPhotoBooths(await attachImages(myPhotoBooths));
+    setScrapbooks(await attachImages(myScrapbooks));
   };
 
   useEffect(() => {
@@ -1394,45 +1403,32 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
   }, [refreshKey]);
 
   const deleteItem = async (type, id) => {
-    if (type === "postcard") {
-      const all = getList(STORAGE_KEYS.postcards);
-      const target = all.find((item) => item.id === id);
-      const nextAll = all.filter((item) => item.id !== id);
-      const nextMine = postcards.filter((item) => item.id !== id);
-
-      if (target?.imageKey) await deleteImageFromDB(target.imageKey);
-      setPostcards(nextMine);
-      saveList(STORAGE_KEYS.postcards, nextAll, MAX_POSTCARDS);
-    } else {
-      const all = getList(STORAGE_KEYS.photoBooths);
-      const target = all.find((item) => item.id === id);
-      const nextAll = all.filter((item) => item.id !== id);
-      const nextMine = photoBooths.filter((item) => item.id !== id);
-
-      if (target?.imageKey) await deleteImageFromDB(target.imageKey);
-      setPhotoBooths(nextMine);
-      saveList(STORAGE_KEYS.photoBooths, nextAll, MAX_PHOTOBOOTHS);
-    }
+    const keyMap = { postcard: STORAGE_KEYS.postcards, photobooth: STORAGE_KEYS.photoBooths, scrapbook: STORAGE_KEYS.scrapbooks };
+    const setterMap = { postcard: setPostcards, photobooth: setPhotoBooths, scrapbook: setScrapbooks };
+    const maxMap = { postcard: MAX_POSTCARDS, photobooth: MAX_PHOTOBOOTHS, scrapbook: MAX_SCRAPBOOKS };
+    const key = keyMap[type];
+    const setter = setterMap[type];
+    if (!key || !setter) return;
+    const all = getList(key);
+    const target = all.find((item) => item.id === id);
+    const nextAll = all.filter((item) => item.id !== id);
+    if (target?.imageKey) await deleteImageFromDB(target.imageKey);
+    setter((prev) => prev.filter((item) => item.id !== id));
+    saveList(key, nextAll, maxMap[type]);
   };
 
   const clearType = async (type) => {
-    if (type === "postcard") {
-      const all = getList(STORAGE_KEYS.postcards);
-      const mine = all.filter((item) => item.ownerGmail === currentUser.gmail || !item.ownerGmail);
-      const next = all.filter((item) => item.ownerGmail && item.ownerGmail !== currentUser.gmail);
-
-      await Promise.all(mine.map((item) => deleteImageFromDB(item.imageKey)));
-      localStorage.setItem(STORAGE_KEYS.postcards, JSON.stringify(next));
-      setPostcards([]);
-    } else {
-      const all = getList(STORAGE_KEYS.photoBooths);
-      const mine = all.filter((item) => item.ownerGmail === currentUser.gmail || !item.ownerGmail);
-      const next = all.filter((item) => item.ownerGmail && item.ownerGmail !== currentUser.gmail);
-
-      await Promise.all(mine.map((item) => deleteImageFromDB(item.imageKey)));
-      localStorage.setItem(STORAGE_KEYS.photoBooths, JSON.stringify(next));
-      setPhotoBooths([]);
-    }
+    const keyMap = { postcard: STORAGE_KEYS.postcards, photobooth: STORAGE_KEYS.photoBooths, scrapbook: STORAGE_KEYS.scrapbooks };
+    const setterMap = { postcard: setPostcards, photobooth: setPhotoBooths, scrapbook: setScrapbooks };
+    const key = keyMap[type];
+    const setter = setterMap[type];
+    if (!key || !setter) return;
+    const all = getList(key);
+    const mine = all.filter((item) => item.ownerGmail === currentUser.gmail || !item.ownerGmail);
+    const next = all.filter((item) => item.ownerGmail && item.ownerGmail !== currentUser.gmail);
+    await Promise.all(mine.map((item) => deleteImageFromDB(item.imageKey)));
+    localStorage.setItem(key, JSON.stringify(next));
+    setter([]);
   };
 
   const items =
@@ -1440,9 +1436,11 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
       ? postcards
       : filter === "photobooth"
         ? photoBooths
-        : [...postcards, ...photoBooths].sort(
-            (a, b) => Number(b.id.split("-")[0]) - Number(a.id.split("-")[0])
-          );
+        : filter === "scrapbook"
+          ? scrapbooks
+          : [...postcards, ...photoBooths, ...scrapbooks].sort(
+              (a, b) => Number(String(b.id).split("-")[0]) - Number(String(a.id).split("-")[0])
+            );
 
   return (
     <div className="page-card">
@@ -1466,7 +1464,7 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
           <h2>My Storage</h2>
           <p>
             Postcards: {postcards.length}/{MAX_POSTCARDS} · Photo Strips:{" "}
-            {photoBooths.length}/{MAX_PHOTOBOOTHS}
+            {photoBooths.length}/{MAX_PHOTOBOOTHS} · Scrapbooks: {scrapbooks.length}/{MAX_SCRAPBOOKS}
           </p>
         </div>
 
@@ -1489,6 +1487,12 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
           >
             Photo Booth
           </button>
+          <button
+            className={filter === "scrapbook" ? "active" : ""}
+            onClick={() => setFilter("scrapbook")}
+          >
+            Scrapbook
+          </button>
         </div>
       </div>
 
@@ -1501,11 +1505,12 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
         <button onClick={() => clearType("photobooth")}>
           Clear Photo Booths
         </button>
+        <button onClick={() => clearType("scrapbook")}>Clear Scrapbooks</button>
       </div>
 
       {items.length === 0 ? (
         <div className="empty-storage">
-          目前還沒有作品，請先到前兩個分頁按 Save to My Storage。
+          目前還沒有作品，請先到 Postcard、Booth 或 Scrapbook 按 Save / Store to My Storage。
         </div>
       ) : (
         <div className="storage-grid">
@@ -1515,7 +1520,7 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
 
               <div className="storage-item-body">
                 <div className="item-type">
-                  {item.type === "postcard" ? "Postcard" : "Photo Booth"}
+                  {item.type === "postcard" ? "Postcard" : item.type === "scrapbook" ? "Scrapbook" : "Photo Booth"}
                 </div>
                 <h3>{item.title}</h3>
                 <p>{item.subtitle}</p>
@@ -1528,7 +1533,9 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
                         item.image,
                         item.type === "postcard"
                           ? "saved-postcard.png"
-                          : "saved-photo-strip.png"
+                          : item.type === "scrapbook"
+                            ? "saved-scrapbook.png"
+                            : "saved-photo-strip.png"
                       )
                     }
                   >
@@ -1540,7 +1547,9 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
                     setSharePreviewCaption(
                       item.type === "postcard"
                         ? `Shared postcard: ${item.title}`
-                        : `Shared photo strip: ${item.title}`
+                        : item.type === "scrapbook"
+                          ? `Shared scrapbook: ${item.title}`
+                          : `Shared photo strip: ${item.title}`
                     );
                   }}>
                     Share to Wall
@@ -1756,7 +1765,7 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
           </button>
 
           <button className="comment-toggle-btn" onClick={onOpen}>
-            💬 {commentTotal} 則留言 / 回覆
+            💬 {commentTotal} 留言
           </button>
         </div>
 
@@ -1814,7 +1823,7 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
                     onClick={() => setReplyOpen((prev) => ({ ...prev, [comment.id]: !prev[comment.id] }))}
                     style={replyHintButtonStyle}
                   >
-                    ↩ 已發送留言可直接在下方回覆
+                    ↩ Reply 回覆
                   </button>
 
                   {(
@@ -2206,7 +2215,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
             <option value="">Choose a work from My Storage</option>
             {savedWorks.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.type === "postcard" ? "Postcard" : "Photo Booth"} -{" "}
+                {item.type === "postcard" ? "Postcard" : item.type === "scrapbook" ? "Scrapbook" : "Photo Booth"} -{" "}
                 {item.title}
               </option>
             ))}
@@ -2325,7 +2334,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                     onClick={() => setGeneralReplyOpen((prev) => ({ ...prev, [normalizedItem.id]: !prev[normalizedItem.id] }))}
                     style={replyHintButtonStyle}
                   >
-                    ↩ 已發送留言可直接在下方回覆
+                    ↩ Reply 回覆
                   </button>
 
                   {(
@@ -2570,7 +2579,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                           onClick={() => setModalReplyOpen((prev) => ({ ...prev, [comment.id]: !prev[comment.id] }))}
                           style={replyHintButtonStyle}
                         >
-                          ↩ 已發送留言可直接在下方回覆
+                          ↩ Reply 回覆
                         </button>
 
                         {(
@@ -2794,6 +2803,11 @@ function App() {
         const next = [itemWithOwner, ...current];
         ok = saveList(STORAGE_KEYS.photoBooths, next, MAX_PHOTOBOOTHS);
       }
+      if (type === "scrapbook") {
+        const current = getList(STORAGE_KEYS.scrapbooks);
+        const next = [itemWithOwner, ...current];
+        ok = saveList(STORAGE_KEYS.scrapbooks, next, MAX_SCRAPBOOKS);
+      }
       if (ok) { setRefreshKey((prev) => prev + 1); }
       return ok;
     } catch (error) {
@@ -2814,7 +2828,7 @@ function App() {
     const wallItem = {
       id, imageKey, userId: currentUser?.id, name: currentUser?.nickname || "Guest",
       gmail: currentUser?.gmail || "", avatar: currentUser?.avatar,
-      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : item.type === "scrapbook" ? `Shared scrapbook: ${item.title || "Scrapbook Planner"}` : `Shared photo strip: ${item.title}`),
+      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : item.type === "scrapbook" ? `Shared scrapbook: ${item.title || "Scrapbook"}` : `Shared photo strip: ${item.title}`),
       createdAt: new Date().toLocaleString(), likes: [], comments: [], favorites: []
     };
 
@@ -2823,14 +2837,66 @@ function App() {
     if (ok) { setRefreshKey((prev) => prev + 1); alert("已分享到 Community Wall！"); }
   };
 
+  const dispatchScrapbookAction = (actionName) => {
+    const actions = window.lifeTrackerScrapbookActions;
+    if (actions && typeof actions[actionName] === "function") {
+      actions[actionName]();
+      return;
+    }
+    window.dispatchEvent(new Event(`life-tracker-scrapbook-${actionName}`));
+  };
+
+  const handleIntroStore = () => {
+    if (activeTab === "scrapbook") {
+      dispatchScrapbookAction("store");
+      return;
+    }
+    if (activeTab === "postcard" || activeTab === "photobooth") {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const target = buttons.find((button) => /Save to My Storage|Store to Storage/i.test(button.textContent || ""));
+      if (target) {
+        target.click();
+      } else {
+        alert("Open or finish a work first, then press Save to My Storage. / 請先完成作品，再按儲存到作品庫。");
+      }
+      return;
+    }
+    alert("This page does not create a new work. / 此頁面不是創作頁，沒有可儲存的新作品。");
+  };
+
+
   if (!currentUser) { return <AuthPage onLogin={setCurrentUser} />; }
+
+  const pageIntro = {
+    postcard: {
+      title: "Postcard",
+      text: "Create a 3D flip postcard with stamps, messages, address details, and exportable artwork."
+    },
+    photobooth: {
+      title: "Booth",
+      text: "Choose upload or camera booth mode to create photo strips and save them to your storage."
+    },
+    scrapbook: {
+      title: "Scrapbook",
+      text: "Design a single-page planner with templates, stickers, tape, notes, photos, drawing tools, and shared works."
+    },
+    storage: {
+      title: "My Storage",
+      text: "Review saved postcards and booth works, download them, delete them, or share them to the wall."
+    },
+    community: {
+      title: "Community Wall",
+      text: "Share your creations, browse classmates’ posts, like, favorite, comment, and reply to comments."
+    }
+  }[activeTab];
 
   return (
     <div className="app">
+      <style>{lifeTrackerPageStyles}</style>
       <header className="global-header">
         <div>
-          <h1>Stamp Studio</h1>
-          <p>Postcard + Photo Booth + Storage + Community Wall</p>
+          <h1>Life Tracker</h1>
+          <p>Postcard+Booth+Scrapbook&Share!</p>
         </div>
         <div className="login-profile-box">
           {/* 加上 header-avatar-trigger 和 onClick 事件 */}
@@ -2855,13 +2921,28 @@ function App() {
           </button>
         </div>
         <div className="tab-switcher">
-          <button className={activeTab === "postcard" ? "active" : ""} onClick={() => setActiveTab("postcard")}>Postcard Studio</button>
-          <button className={activeTab === "photobooth" ? "active" : ""} onClick={() => setActiveTab("photobooth")}>Photo Booth Studio</button>
+          <button className={activeTab === "postcard" ? "active" : ""} onClick={() => setActiveTab("postcard")}>Postcard</button>
+          <button className={activeTab === "photobooth" ? "active" : ""} onClick={() => setActiveTab("photobooth")}>Booth</button>
+          <button className={activeTab === "scrapbook" ? "active" : ""} onClick={() => setActiveTab("scrapbook")}>Scrapbook</button>
           <button className={activeTab === "storage" ? "active" : ""} onClick={() => setActiveTab("storage")}>My Storage</button>
           <button className={activeTab === "community" ? "active" : ""} onClick={() => setActiveTab("community")}>Community Wall</button>
-          <button className={activeTab === "scrapbook" ? "active" : ""} onClick={() => setActiveTab("scrapbook")}>Scrapbook Planner</button>
         </div>
       </header>
+
+      <section className="page-intro-card">
+        <div className="page-intro-copy">
+          <strong>{pageIntro.title}</strong>
+          <span>{pageIntro.text}</span>
+        </div>
+        {activeTab === "scrapbook" && (
+          <div className="intro-action-row">
+            <button className="intro-store-btn intro-download-png" onClick={() => dispatchScrapbookAction("download-png")}>Download PNG</button>
+            <button className="intro-store-btn intro-download-pdf" onClick={() => dispatchScrapbookAction("download-pdf")}>Download PDF</button>
+            <button className="intro-store-btn intro-store-storage" onClick={handleIntroStore}>Store to Storage</button>
+            <button className="intro-store-btn intro-share-wall" onClick={() => dispatchScrapbookAction("share")}>Share to Wall</button>
+          </div>
+        )}
+      </section>
 
       {activeTab === "postcard" && <ThreeDeskPostcard onSaveArtwork={saveArtwork} />}
          {/* ==================== PHOTOBOOTH 分頁開始 ==================== */}
@@ -2926,7 +3007,7 @@ function App() {
 
       {activeTab === "storage" && <MyStoragePage refreshKey={refreshKey} currentUser={currentUser} onShareToWall={shareToWall} />}
       {activeTab === "community" && <CommunityWallPage refreshKey={refreshKey} currentUser={currentUser} />}
-      {activeTab === "scrapbook" && <ScrapbookPlanner currentUser={currentUser} onShareToWall={shareToWall} />}
+      {activeTab === "scrapbook" && <ScrapbookPlanner currentUser={currentUser} onShareToWall={shareToWall} onSaveArtwork={saveArtwork} />}
 
       {/* ── 新增：更換頭像專用彈出視窗 (Modal) ── */}
       {avatarModalOpen && (
@@ -2997,5 +3078,624 @@ function App() {
   );
 }
 
+
+const lifeTrackerPageStyles = `
+  body { overflow-x: hidden; }
+  .app { overflow-x: hidden; }
+  .page-intro-card {
+    max-width: 1280px;
+    margin: 18px auto 22px;
+    padding: 16px 22px;
+    border-radius: 24px;
+    border: 1px solid rgba(140, 104, 72, 0.18);
+    background: linear-gradient(135deg, rgba(255,255,255,.92), rgba(255,246,232,.84));
+    box-shadow: 0 16px 36px rgba(83, 55, 35, .08);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: #5c3a26;
+  }
+  .page-intro-card strong {
+    flex: 0 0 auto;
+    justify-self: start;
+    display: inline-flex;
+    width: fit-content;
+    max-width: max-content;
+    padding: 7px 13px;
+    border-radius: 999px;
+    background: #6d4328;
+    color: #fffdf8;
+    letter-spacing: .03em;
+  }
+  .page-intro-card span { line-height: 1.55; font-size: .95rem; }
+  .page-intro-copy { display: grid; gap: 4px; align-items: start; min-width: 0; }
+  .intro-store-btn { border: 0; border-radius: 999px; padding: 10px 16px; background: linear-gradient(135deg, #7d4e32, #bf8052); color: #fff; font-weight: 900; cursor: pointer; box-shadow: 0 10px 22px rgba(94, 57, 35, .16); white-space: nowrap; }
+  .intro-store-btn:hover { transform: translateY(-1px); filter: brightness(1.03); }
+  @media (max-width: 780px) {
+    .page-intro-card { margin: 14px 14px 18px; flex-direction: column; align-items: flex-start; }
+  }
+
+  /* Final intro action layout */
+  .page-intro-card { align-items: center; gap: 14px; }
+  .page-intro-copy strong { display: inline-flex !important; width: fit-content !important; align-self: flex-start; padding: 8px 14px !important; border-radius: 999px !important; }
+  .intro-action-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; margin-left: auto; }
+  .intro-action-row .intro-store-btn { white-space: nowrap; }
+  @media (max-width: 760px) { .intro-action-row { justify-content: flex-start; width: 100%; margin-left: 0; } }
+
+  /* Final requested intro fixes: actions only appear on Scrapbook, one row, distinct colors */
+  .page-intro-card { justify-content: space-between; }
+  .intro-action-row { display: flex !important; flex-wrap: nowrap !important; gap: 10px !important; justify-content: flex-end !important; align-items: center !important; margin-left: auto !important; }
+  .intro-store-btn { min-width: 118px; min-height: 42px; padding: 10px 14px !important; font-size: .92rem !important; line-height: 1.1 !important; }
+  .intro-download-png { background: linear-gradient(135deg, #8a5633, #c4865c) !important; }
+  .intro-download-pdf { background: linear-gradient(135deg, #5263c9, #8e70d4) !important; }
+  .intro-store-storage { background: linear-gradient(135deg, #3f7a54, #8bbf7d) !important; }
+  .intro-share-wall { background: linear-gradient(135deg, #d66b92, #ff9fb9) !important; }
+  @media (max-width: 760px) { .intro-action-row { flex-wrap: wrap !important; justify-content: flex-start !important; } }
+
+
+  /* Booth and Community width alignment fixes */
+  .photobooth-tab-container,
+  .community-layout {
+    width: min(1280px, calc(100% - 40px)) !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .photobooth-tab-container .camera-booth-layout {
+    width: 100% !important;
+    max-width: 1280px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 420px) !important;
+    gap: 28px !important;
+    align-items: start !important;
+    justify-content: stretch !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .photobooth-tab-container .camera-booth-layout > div:first-child,
+  .photobooth-tab-container .camera-booth-layout > div:last-child {
+    min-width: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .photobooth-tab-container .camera-booth-layout > div:last-child {
+    max-width: 420px !important;
+    justify-self: end !important;
+  }
+
+  .photobooth-tab-container .photo-strip-preview {
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .community-layout {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+
+  .community-layout > .page-card,
+  .community-layout .comment-board-card {
+    width: 100% !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .community-layout .storage-filters {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    flex-wrap: wrap !important;
+  }
+
+  .community-layout .wall-form,
+  .community-layout .wall-preview,
+  .community-layout .pinterest-wall,
+  .community-layout .comment-form,
+  .community-layout .comment-list {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .community-layout .wall-form button,
+  .community-layout .wall-upload-btn,
+  .community-layout .redbook-actions button,
+  .community-layout .post-owner-actions button,
+  .community-layout .edit-post-box button,
+  .community-layout .wall-comment-box button,
+  .community-layout .output-preview-actions button,
+  .community-layout .modal-like-btn,
+  .community-layout .modal-fav-btn,
+  .community-layout .modal-delete-post-btn,
+  .community-layout .reply-toggle-btn {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    line-height: 1.15 !important;
+  }
+
+  .community-layout .redbook-actions,
+  .community-layout .post-owner-actions {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+  }
+
+  .community-layout .redbook-actions button {
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .community-layout .wall-comment-box {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+  }
+
+  .community-layout .wall-comment-box input {
+    min-width: 0 !important;
+  }
+
+  @media (max-width: 1040px) {
+    .photobooth-tab-container .camera-booth-layout {
+      grid-template-columns: 1fr !important;
+    }
+    .photobooth-tab-container .camera-booth-layout > div:last-child {
+      max-width: 520px !important;
+      justify-self: center !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .photobooth-tab-container,
+    .community-layout {
+      width: min(100% - 24px, 1280px) !important;
+    }
+    .community-layout .redbook-actions,
+    .community-layout .post-owner-actions {
+      flex-wrap: wrap !important;
+    }
+  }
+
+`;
+
 export default App;
 
+
+/* Community Wall button clipping hotfix: keep post/action buttons visible without splitting button text */
+const postButtonClipFixStyle = document.createElement("style");
+postButtonClipFixStyle.textContent = `
+  .community-layout,
+  .community-layout * {
+    box-sizing: border-box !important;
+  }
+
+  .community-layout .page-card,
+  .community-layout .comment-board-card,
+  .community-layout .wall-form,
+  .community-layout .pinterest-wall,
+  .community-layout .pin-card,
+  .community-layout .redbook-card,
+  .community-layout .redbook-body {
+    overflow: visible !important;
+  }
+
+  .community-layout .wall-form {
+    display: grid !important;
+    grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto auto !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 18px !important;
+  }
+
+  .community-layout .wall-form input,
+  .community-layout .wall-form select {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .community-layout .wall-form .or-divider {
+    white-space: nowrap !important;
+    text-align: center !important;
+  }
+
+  .community-layout .wall-form button,
+  .community-layout .wall-upload-btn {
+    width: auto !important;
+    min-width: max-content !important;
+    max-width: 100% !important;
+    padding: 10px 16px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    flex: 0 0 auto !important;
+  }
+
+  .community-layout .redbook-actions,
+  .community-layout .post-owner-actions,
+  .community-layout .edit-post-box > div,
+  .community-layout .output-preview-actions {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    overflow: visible !important;
+    align-items: center !important;
+  }
+
+  .community-layout .redbook-actions button,
+  .community-layout .post-owner-actions button,
+  .community-layout .edit-post-box button,
+  .community-layout .modal-like-btn,
+  .community-layout .modal-fav-btn,
+  .community-layout .modal-delete-post-btn,
+  .community-layout .output-preview-actions button,
+  .community-layout .wall-comment-box button,
+  .community-layout .wall-reply-box button,
+  .community-layout .reply-toggle-btn {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: max-content !important;
+    max-width: 100% !important;
+    padding: 8px 12px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: keep-all !important;
+  }
+
+  .community-layout .wall-comment-box,
+  .community-layout .wall-reply-box {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex-wrap: nowrap !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .community-layout .wall-comment-box input,
+  .community-layout .wall-reply-box input {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+
+  @media (max-width: 980px) {
+    .community-layout .wall-form {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    }
+    .community-layout .wall-form .or-divider,
+    .community-layout .wall-form .wall-upload-btn,
+    .community-layout .wall-form button {
+      justify-self: start !important;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .community-layout .wall-form {
+      grid-template-columns: 1fr !important;
+    }
+    .community-layout .redbook-actions button,
+    .community-layout .post-owner-actions button,
+    .community-layout .wall-form button,
+    .community-layout .wall-upload-btn {
+      font-size: 12px !important;
+      padding: 8px 10px !important;
+    }
+  }
+`;
+document.head.appendChild(postButtonClipFixStyle);
+
+
+/* Community Wall final wrap fix: action buttons may wrap to new rows instead of overflowing */
+const communityButtonWrapNoOverflowStyle = document.createElement("style");
+communityButtonWrapNoOverflowStyle.textContent = `
+  .community-layout,
+  .community-layout * {
+    box-sizing: border-box !important;
+  }
+
+  .community-layout .page-card,
+  .community-layout .comment-board-card,
+  .community-layout .wall-form,
+  .community-layout .wall-preview,
+  .community-layout .pinterest-wall,
+  .community-layout .pin-card,
+  .community-layout .redbook-card,
+  .community-layout .redbook-body,
+  .community-layout .wall-comment-list,
+  .community-layout .wall-comment-item {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .community-layout .wall-form {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 12px !important;
+    overflow: visible !important;
+  }
+
+  .community-layout .wall-form input,
+  .community-layout .wall-form select {
+    flex: 1 1 230px !important;
+    min-width: 170px !important;
+    max-width: 100% !important;
+  }
+
+  .community-layout .wall-form .or-divider {
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+  }
+
+  .community-layout .wall-form button,
+  .community-layout .wall-upload-btn {
+    flex: 0 1 auto !important;
+    min-width: 116px !important;
+    max-width: 100% !important;
+    width: auto !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    overflow-wrap: anywhere !important;
+    text-overflow: clip !important;
+  }
+
+  .community-layout .redbook-user-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    align-items: center !important;
+    min-width: 0 !important;
+  }
+
+  .community-layout .post-owner-actions {
+    margin-left: 0 !important;
+  }
+
+  .community-layout .redbook-actions,
+  .community-layout .post-owner-actions,
+  .community-layout .edit-post-box > div,
+  .community-layout .output-preview-actions,
+  .community-layout .modal-action-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+  }
+
+  .community-layout .redbook-actions button,
+  .community-layout .post-owner-actions button,
+  .community-layout .edit-post-box button,
+  .community-layout .modal-like-btn,
+  .community-layout .modal-fav-btn,
+  .community-layout .modal-delete-post-btn,
+  .community-layout .output-preview-actions button,
+  .community-layout .wall-comment-box button,
+  .community-layout .wall-reply-box button,
+  .community-layout .reply-toggle-btn,
+  .community-layout .save-edit-btn,
+  .community-layout .cancel-edit-btn {
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: auto !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: keep-all !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    padding: 8px 11px !important;
+    line-height: 1.2 !important;
+  }
+
+  .community-layout .wall-comment-box,
+  .community-layout .wall-reply-box {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .community-layout .wall-comment-box input,
+  .community-layout .wall-reply-box input {
+    flex: 1 1 160px !important;
+    min-width: 130px !important;
+    max-width: 100% !important;
+  }
+
+  @media (max-width: 720px) {
+    .community-layout .wall-form input,
+    .community-layout .wall-form select,
+    .community-layout .wall-form .or-divider,
+    .community-layout .wall-upload-btn,
+    .community-layout .wall-form button {
+      flex: 1 1 100% !important;
+      width: 100% !important;
+    }
+
+    .community-layout .redbook-actions button,
+    .community-layout .post-owner-actions button,
+    .community-layout .edit-post-box button,
+    .community-layout .wall-comment-box button,
+    .community-layout .wall-reply-box button,
+    .community-layout .reply-toggle-btn {
+      flex: 1 1 auto !important;
+      min-width: 92px !important;
+    }
+  }
+`;
+document.head.appendChild(communityButtonWrapNoOverflowStyle);
+
+
+/* Community Wall hard no-overflow fix: let post buttons wrap inside each card instead of spilling out */
+const communityWallHardWrapFixStyle = document.createElement("style");
+communityWallHardWrapFixStyle.textContent = `
+  .community-layout,
+  .community-layout * {
+    box-sizing: border-box !important;
+  }
+
+  .community-layout .pinterest-wall {
+    overflow: visible !important;
+  }
+
+  .community-layout .pin-card,
+  .community-layout .redbook-card {
+    overflow: hidden !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .community-layout .redbook-body,
+  .community-layout .redbook-body * {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .community-layout .redbook-user-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .community-layout .redbook-user-row > div:first-child {
+    flex: 1 1 170px !important;
+    min-width: 0 !important;
+  }
+
+  .community-layout .redbook-user-row strong,
+  .community-layout .redbook-user-row small,
+  .community-layout .redbook-caption {
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+
+  .community-layout .post-owner-actions {
+    margin-left: 0 !important;
+    flex: 1 1 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .community-layout .redbook-actions {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+  }
+
+  .community-layout .redbook-actions .comment-toggle-btn {
+    grid-column: 1 / -1 !important;
+  }
+
+  .community-layout .redbook-actions button,
+  .community-layout .post-owner-actions button,
+  .community-layout .edit-post-box button,
+  .community-layout .modal-like-btn,
+  .community-layout .modal-fav-btn,
+  .community-layout .modal-delete-post-btn,
+  .community-layout .output-preview-actions button,
+  .community-layout .save-edit-btn,
+  .community-layout .cancel-edit-btn,
+  .community-layout .reply-toggle-btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    padding: 8px 10px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    line-height: 1.25 !important;
+    text-align: center !important;
+    overflow: hidden !important;
+    text-overflow: clip !important;
+  }
+
+  .community-layout .wall-comment-box,
+  .community-layout .wall-reply-box {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+    align-items: center !important;
+    overflow: hidden !important;
+  }
+
+  .community-layout .wall-comment-box input,
+  .community-layout .wall-reply-box input {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .community-layout .wall-comment-box button,
+  .community-layout .wall-reply-box button {
+    width: auto !important;
+    min-width: 72px !important;
+    max-width: 100% !important;
+    padding: 8px 10px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    line-height: 1.2 !important;
+  }
+
+  .community-layout .wall-comment-list,
+  .community-layout .wall-comment-item {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .community-layout .wall-comment-item > div {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .community-layout .wall-comment-item p,
+  .community-layout .wall-comment-item small,
+  .community-layout .wall-comment-item strong {
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+
+  @media (max-width: 520px) {
+    .community-layout .redbook-actions,
+    .community-layout .post-owner-actions {
+      grid-template-columns: 1fr !important;
+    }
+    .community-layout .wall-comment-box,
+    .community-layout .wall-reply-box {
+      grid-template-columns: 1fr !important;
+    }
+    .community-layout .wall-comment-box button,
+    .community-layout .wall-reply-box button {
+      width: 100% !important;
+    }
+  }
+`;
+document.head.appendChild(communityWallHardWrapFixStyle);
