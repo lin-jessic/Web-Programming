@@ -1744,8 +1744,16 @@ function CommunityWallPage({ refreshKey, currentUser }) {
 
   const loadWall = async () => {
     // My Storage 仍保留原本的本機儲存邏輯，因為這是個人作品區。
-    // Community Wall / Live Comment Board 只交給 Firebase 即時同步，
-    // 不再讀 localStorage，避免本機舊資料和線上資料不同步。
+    // Community Wall / Live Comment Board 會在 useEffect 裡接 Firebase 即時同步。
+    try {
+      const localGallery = normalizeWallGallery(await attachImages(getList(STORAGE_KEYS.gallery)));
+      const localComments = getList(STORAGE_KEYS.comments).map(normalizeWallComment);
+
+      setGallery(localGallery);
+      setComments(localComments);
+    } catch (error) {
+      console.warn("Load local wall fallback failed.", error);
+    }
 
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
       (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
@@ -2521,27 +2529,23 @@ function App() {
   };
 
   const shareToWall = async (item) => {
-    try {
-      const imageSource = item.image || (await getImageFromDB(item.imageKey));
-      if (!imageSource) {
-        alert("分享失敗：找不到作品圖片。");
-        return;
-      }
+    const current = getList(STORAGE_KEYS.gallery);
+    const id = makeId();
+    const imageKey = `wall_${id}`;
+    const imageSource = item.image || (await getImageFromDB(item.imageKey));
+    if (!imageSource) { alert("分享失敗：找不到作品圖片。"); return; }
+    await saveImageToDB(imageKey, imageSource);
 
-      await addGalleryPost({
-        image: imageSource,
-        userId: currentUser?.id,
-        name: currentUser?.nickname || "Guest",
-        gmail: currentUser?.gmail || "",
-        avatar: currentUser?.avatar,
-        caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : `Shared photo strip: ${item.title}`)
-      });
+    const wallItem = {
+      id, imageKey, userId: currentUser?.id, name: currentUser?.nickname || "Guest",
+      gmail: currentUser?.gmail || "", avatar: currentUser?.avatar,
+      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : `Shared photo strip: ${item.title}`),
+      createdAt: new Date().toLocaleString(), likes: [], comments: [], favorites: []
+    };
 
-      alert("已分享到 Community Wall！");
-    } catch (error) {
-      console.error("Share to cloud wall failed.", error);
-      alert("分享失敗：請確認 Firebase 設定、Firestore Rules 或圖片大小是否過大。");
-    }
+    const next = [wallItem, ...current];
+    const ok = saveList(STORAGE_KEYS.gallery, next, MAX_GALLERY);
+    if (ok) { setRefreshKey((prev) => prev + 1); alert("已分享到 Community Wall！"); }
   };
 
   if (!currentUser) { return <AuthPage onLogin={setCurrentUser} />; }
