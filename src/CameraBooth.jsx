@@ -109,7 +109,7 @@ const getVideoFilterStyle = (filter) => {
 
 
 // ================= CameraBooth 主要元件 =================
-const CameraBooth = () => {
+const CameraBooth = ({ onSaveArtwork }) => {
   const [photos, setPhotos] = useState([]); // 存放拍好的照片網址
   const [stripType, setStripType] = useState(4); // 3=三格, 4=四格
   const [title, setTitle] = useState("MY MEMORIES");
@@ -214,31 +214,61 @@ const CameraBooth = () => {
   };
 
 
-  // 下下載處理函式
-  const handleDownloadStrip = async () => {
+  const makeLocalId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const createFullStripDataUrl = async () => {
     if (photos.length < stripType) {
-      alert(`請先拍滿 ${stripType} 張照片再下載喔！`);
+      alert(`請先拍滿 ${stripType} 張照片喔！`);
+      return null;
+    }
+
+    if (!stripRef.current) return null;
+
+    const canvas = await html2canvas(stripRef.current, {
+      useCORS: true,
+      scale: 2,
+      backgroundColor: null
+    });
+
+    return canvas.toDataURL('image/png');
+  };
+
+  // 下載處理函式
+  const handleDownloadStrip = async () => {
+    try {
+      const fullImageDataUrl = await createFullStripDataUrl();
+      if (!fullImageDataUrl) return;
+      downloadImage(fullImageDataUrl, `${title || "camera-photo-booth"}-人生${stripType}格.png`);
+    } catch (error) {
+      console.error("生成相片條失敗:", error);
+      alert("下載失敗，請稍後再試。");
+    }
+  };
+
+  // 新增：相機拍貼也可以存到 My Storage
+  const handleSaveToStorage = async () => {
+    if (!onSaveArtwork) {
+      alert("目前還沒有接到 My Storage 儲存功能，請確認 App.jsx 有傳入 onSaveArtwork。");
       return;
     }
 
+    try {
+      const fullImageDataUrl = await createFullStripDataUrl();
+      if (!fullImageDataUrl) return;
 
-    if (stripRef.current) {
-      try {
-        const canvas = await html2canvas(stripRef.current, {
-          useCORS: true,
-          scale: 2,
-          backgroundColor: null
-        });
+      const ok = await onSaveArtwork("photobooth", {
+        id: makeLocalId(),
+        type: "photobooth",
+        title: title || "Camera Photo Booth",
+        subtitle: subtitle || `Camera ${stripType}-Cut Photo Booth`,
+        createdAt: new Date().toLocaleString(),
+        image: fullImageDataUrl
+      });
 
-
-        const fullImageDataUrl = canvas.toDataURL('image/png');
-        downloadImage(fullImageDataUrl, `${title}-人生四格.png`);
-
-
-      } catch (error) {
-        console.error("生成相片條失敗:", error);
-        alert("下載失敗，請稍後再試。");
-      }
+      if (ok) alert("相機拍貼已存到 My Storage！");
+    } catch (error) {
+      console.error("相機拍貼儲存失敗:", error);
+      alert("儲存失敗，請稍後再試。");
     }
   };
 
@@ -471,7 +501,7 @@ const CameraBooth = () => {
         </div>
 
 
-        {/* 下載按鈕 */}
+        {/* 下載 / 儲存按鈕 */}
         <button
           onClick={handleDownloadStrip}
           style={{
@@ -489,6 +519,25 @@ const CameraBooth = () => {
           }}
         >
            下載完整拍貼
+        </button>
+
+        <button
+          onClick={handleSaveToStorage}
+          style={{
+            marginTop: '12px',
+            width: '100%',
+            padding: '16px',
+            background: '#9A6B47',
+            color: 'white',
+            border: 'none',
+            borderRadius: '10px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            fontSize: '18px',
+            boxShadow: '0 4px 10px rgba(109,67,40,0.22)'
+          }}
+        >
+           存到 My Storage
         </button>
       </div>
 

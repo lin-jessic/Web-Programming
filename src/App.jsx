@@ -4,6 +4,7 @@ import ThreeDeskPostcard from "./ThreeDeskPostcard.jsx";
 import UploadBooth from "./UploadBooth.jsx";
 import CameraBooth from "./CameraBooth.jsx";
 import BoothChoose from "./BoothChoose.jsx";
+import ScrapbookPlanner from "./ScrapbookPlanner.jsx";
 import "./App.css";
 
 const STORAGE_KEYS = {
@@ -173,6 +174,82 @@ async function resetLocalDemoData() {
 function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
+
+function stableHash(value) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function getStableCommentId(source) {
+  if (source.id) return source.id;
+  const seed = `${source.gmail || "guest"}|${source.name || source.nickname || "Guest"}|${source.createdAt || ""}|${source.text || ""}`;
+  return `comment_${stableHash(seed)}`;
+}
+
+function normalizeWallComment(comment) {
+  const source = typeof comment === "string" ? { text: comment } : (comment || {});
+  return {
+    id: getStableCommentId(source),
+    userId: source.userId || source.gmail || "guest",
+    gmail: source.gmail || "",
+    name: source.name || source.nickname || "Guest",
+    avatar: source.avatar || "🌷",
+    text: source.text || "",
+    createdAt: source.createdAt || new Date().toLocaleString(),
+    replies: Array.isArray(source.replies) ? source.replies.map(normalizeWallComment) : []
+  };
+}
+
+function normalizeWallGallery(list) {
+  return (Array.isArray(list) ? list : []).map((item) => ({
+    ...item,
+    likes: Array.isArray(item.likes) ? item.likes : [],
+    favorites: Array.isArray(item.favorites) ? item.favorites : [],
+    comments: Array.isArray(item.comments) ? item.comments.map(normalizeWallComment) : []
+  }));
+}
+
+const replyInputStyle = {
+  flex: 1,
+  padding: "9px 12px",
+  borderRadius: 999,
+  border: "1px solid #e7cdb4",
+  background: "#fffaf6",
+  color: "#5b3924",
+  fontSize: 12,
+  outline: "none",
+  boxShadow: "inset 0 1px 3px rgba(80, 48, 26, 0.06)"
+};
+
+const replySendButtonStyle = {
+  border: "none",
+  borderRadius: 999,
+  padding: "8px 14px",
+  background: "linear-gradient(135deg, #8a5633, #c4865c)",
+  color: "#fff",
+  fontWeight: 800,
+  fontSize: 12,
+  cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(120, 72, 36, 0.18)",
+  whiteSpace: "nowrap"
+};
+
+const replyHintButtonStyle = {
+  marginTop: 8,
+  border: "none",
+  borderRadius: 999,
+  background: "linear-gradient(135deg, #fff3e8, #f1dcc8)",
+  color: "#8a5633",
+  fontWeight: 800,
+  cursor: "default",
+  padding: "6px 10px",
+  fontSize: 12,
+  boxShadow: "0 4px 10px rgba(120, 72, 36, 0.1)"
+};
 
 function downloadImage(dataUrl, filename) {
   const link = document.createElement("a");
@@ -1587,12 +1664,15 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
 
 function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, onEdit, onComment, onOpen }) {
   const [commentInput, setCommentInput] = useState("");
+  const [replyInputs, setReplyInputs] = useState({});
+  const [replyOpen, setReplyOpen] = useState({});
   const [isEditing, setIsEditing] = useState(false);
   const [editCaption, setEditCaption] = useState(item.caption);
 
   const likes = item.likes || [];
-  const comments = item.comments || [];
+  const comments = (item.comments || []).map(normalizeWallComment);
   const favorites = item.favorites || [];
+  const commentTotal = comments.reduce((sum, comment) => sum + 1 + ((comment.replies || []).length), 0);
   
   const liked = likes.includes(currentUser.gmail);
   const favorited = favorites.includes(currentUser.gmail);
@@ -1602,6 +1682,14 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
     if (!commentInput.trim()) return;
     onComment(item.id, commentInput);
     setCommentInput("");
+  };
+
+  const sendReply = (commentId) => {
+    const text = (replyInputs[commentId] || "").trim();
+    if (!text) return;
+    onComment(item.id, text, commentId);
+    setReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
+    setReplyOpen((prev) => ({ ...prev, [commentId]: false }));
   };
 
   const handleSaveEdit = () => {
@@ -1668,7 +1756,7 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
           </button>
 
           <button className="comment-toggle-btn" onClick={onOpen}>
-            💬 {comments.length} 則留言
+            💬 {commentTotal} 則留言 / 回覆
           </button>
         </div>
 
@@ -1698,6 +1786,52 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
                   <strong>{comment.name}</strong>
                   <p>{comment.text}</p>
                   <small>{comment.createdAt}</small>
+
+                  {(comment.replies || []).length > 0 && (
+                    <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                      {(comment.replies || []).map((reply) => (
+                        <div key={reply.id} style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 12, background: "rgba(255,255,255,0.62)", border: "1px solid rgba(123,86,56,0.12)" }}>
+                          <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center", width: "22px", height: "22px", minWidth: "22px", fontSize: "12px" }}>
+                            {reply.avatar && (reply.avatar.startsWith("data:image") || reply.avatar.startsWith("blob:")) ? (
+                              <img src={reply.avatar} alt="reply avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                            ) : (
+                              reply.avatar || "🌷"
+                            )}
+                          </span>
+                          <div>
+                            <strong style={{ fontSize: 12 }}>{reply.name}</strong>
+                            <p style={{ margin: "2px 0", fontSize: 13 }}>{reply.text}</p>
+                            <small>{reply.createdAt}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="reply-toggle-btn"
+                    onClick={() => setReplyOpen((prev) => ({ ...prev, [comment.id]: !prev[comment.id] }))}
+                    style={replyHintButtonStyle}
+                  >
+                    ↩ 已發送留言可直接在下方回覆
+                  </button>
+
+                  {(
+                    <div className="wall-reply-box" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <input
+                        type="text"
+                        value={replyInputs[comment.id] || ""}
+                        onChange={(e) => setReplyInputs((prev) => ({ ...prev, [comment.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") sendReply(comment.id);
+                        }}
+                        placeholder={`回覆 ${comment.name} 的留言...`}
+                        style={replyInputStyle}
+                      />
+                      <button type="button" onClick={() => sendReply(comment.id)} style={replySendButtonStyle}>Send Reply</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1720,16 +1854,24 @@ function CommunityWallPage({ refreshKey, currentUser }) {
   const [selectedWorkId, setSelectedWorkId] = useState("");
 
   const [commentText, setCommentText] = useState("");
+  const [generalReplyInputs, setGeneralReplyInputs] = useState({});
+  const [generalReplyOpen, setGeneralReplyOpen] = useState({});
 
   const [shareModalItem, setShareModalItem] = useState(null); 
   const [shareCaption, setShareCaption] = useState("");
   const [openPostId, setOpenPostId] = useState(null); 
+  const [modalReplyInputs, setModalReplyInputs] = useState({});
+  const [modalReplyOpen, setModalReplyOpen] = useState({});
   
   const [wallFilter, setWallFilter] = useState("all");
 
   const loadWall = async () => {
-    setGallery(await attachImages(getList(STORAGE_KEYS.gallery)));
-    setComments(getList(STORAGE_KEYS.comments));
+    const normalizedGallery = normalizeWallGallery(getList(STORAGE_KEYS.gallery));
+    saveList(STORAGE_KEYS.gallery, stripImages(normalizedGallery), MAX_GALLERY);
+    setGallery(await attachImages(normalizedGallery));
+    const normalizedComments = getList(STORAGE_KEYS.comments).map(normalizeWallComment);
+    setComments(normalizedComments);
+    saveList(STORAGE_KEYS.comments, normalizedComments, MAX_COMMENTS);
 
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
       (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
@@ -1885,34 +2027,81 @@ function CommunityWallPage({ refreshKey, currentUser }) {
     saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
   };
 
-  const addWallComment = (postId, text) => {
-    if (!text.trim()) return;
+  const addWallComment = (postId, text, parentCommentId = null) => {
+    const cleanText = String(text || "").trim();
+    if (!cleanText) return;
 
-    const next = gallery.map((item) => {
-      if (item.id !== postId) return item;
-
-      const oldComments = item.comments || [];
-
-      return {
-        ...item,
-        comments: [
-          {
-            id: makeId(),
-            name: currentUser.nickname,
-            avatar: currentUser.avatar,
-            text,
-            createdAt: new Date().toLocaleString()
-          },
-          ...oldComments
-        ].slice(0, 10)
-      };
+    const makeCommentPayload = () => ({
+      id: makeId(),
+      userId: currentUser.id || currentUser.gmail,
+      gmail: currentUser.gmail,
+      name: currentUser.nickname,
+      avatar: currentUser.avatar,
+      text: cleanText,
+      createdAt: new Date().toLocaleString(),
+      replies: []
     });
 
-    setGallery(next);
-    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+    const addReplyToCommentTree = (comments, parentId, replyPayload) => {
+      let found = false;
+      const nextComments = comments.map((comment) => {
+        if (String(comment.id) === String(parentId)) {
+          found = true;
+          return {
+            ...comment,
+            replies: [...(comment.replies || []), replyPayload].slice(-30)
+          };
+        }
+
+        if ((comment.replies || []).length > 0) {
+          const result = addReplyToCommentTree(comment.replies, parentId, replyPayload);
+          if (result.found) {
+            found = true;
+            return { ...comment, replies: result.comments };
+          }
+        }
+
+        return comment;
+      });
+
+      return { comments: nextComments, found };
+    };
+
+    setGallery((prevGallery) => {
+      const normalizedGallery = normalizeWallGallery(prevGallery);
+      let didUpdate = false;
+
+      const next = normalizedGallery.map((item) => {
+        if (item.id !== postId) return item;
+
+        didUpdate = true;
+        const oldComments = (item.comments || []).map(normalizeWallComment);
+        const payload = makeCommentPayload();
+
+        if (parentCommentId) {
+          const result = addReplyToCommentTree(oldComments, parentCommentId, payload);
+          if (!result.found) {
+            alert("找不到要回覆的留言，請重新整理後再試一次。");
+            return item;
+          }
+          return { ...item, comments: result.comments };
+        }
+
+        return {
+          ...item,
+          comments: [payload, ...oldComments].slice(0, 30)
+        };
+      });
+
+      if (didUpdate) {
+        saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+      }
+
+      return next;
+    });
   };
 
-const addGeneralComment = () => {
+  const addGeneralComment = () => {
     if (!commentText.trim()) {
       alert("請先輸入留言內容！");
       return;
@@ -1920,10 +2109,13 @@ const addGeneralComment = () => {
 
     const item = {
       id: makeId(),
+      userId: currentUser.id,
+      gmail: currentUser.gmail,
       name: currentUser.nickname,
-      avatar: currentUser.avatar || "🌷",
+      avatar: currentUser.avatar,
       text: commentText,
-      createdAt: new Date().toLocaleString()
+      createdAt: new Date().toLocaleString(),
+      replies: []
     };
 
     const next = [item, ...comments];
@@ -1931,6 +2123,36 @@ const addGeneralComment = () => {
     saveList(STORAGE_KEYS.comments, next, MAX_COMMENTS);
 
     setCommentText("");
+  };
+
+  const addGeneralReply = (commentId, text) => {
+    const cleanText = String(text || "").trim();
+    if (!cleanText) return;
+
+    const reply = {
+      id: makeId(),
+      userId: currentUser.id || currentUser.gmail,
+      gmail: currentUser.gmail,
+      name: currentUser.nickname,
+      avatar: currentUser.avatar,
+      text: cleanText,
+      createdAt: new Date().toLocaleString(),
+      replies: []
+    };
+
+    const next = comments.map((comment) => {
+      const normalized = normalizeWallComment(comment);
+      if (String(normalized.id) !== String(commentId)) return normalized;
+      return {
+        ...normalized,
+        replies: [...(normalized.replies || []), reply].slice(-30)
+      };
+    });
+
+    setComments(next);
+    saveList(STORAGE_KEYS.comments, next, MAX_COMMENTS);
+    setGeneralReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
+    setGeneralReplyOpen((prev) => ({ ...prev, [commentId]: false }));
   };
 
   const clearWall = async () => {
@@ -2073,25 +2295,57 @@ const addGeneralComment = () => {
           <div className="empty-storage">目前還沒有留言。</div>
         ) : (
           <div className="comment-list">
-            {comments.map((item) => (
-              <div className="comment-item" key={item.id}>
-                <div>
-                  {/* 💡 修正：增加頭像外觀判定機制，讓照片與 Emoji 都能工整顯示 */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center", width: "24px", height: "24px", minWidth: "24px", fontSize: "14px", background: "#f4e5d6", borderRadius: "50%" }}>
-                      {item.avatar && (item.avatar.startsWith("data:image") || item.avatar.startsWith("blob:")) ? (
-                        <img src={item.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                      ) : (
-                        item.avatar || "🌷"
-                      )}
-                    </span>
-                    <strong style={{ color: "#5b3924" }}>{item.name}</strong>
+            {comments.map((item) => {
+              const normalizedItem = normalizeWallComment(item);
+              return (
+                <div className="comment-item" key={normalizedItem.id}>
+                  <div>
+                    <strong>
+                      {normalizedItem.avatar} {normalizedItem.name}
+                    </strong>
+                    <small>{normalizedItem.createdAt}</small>
                   </div>
-                  <small>{item.createdAt}</small>
+                  <p>{normalizedItem.text}</p>
+
+                  {(normalizedItem.replies || []).length > 0 && (
+                    <div style={{ marginTop: 8, display: "grid", gap: 6, paddingLeft: 12, borderLeft: "3px solid #ead7c4" }}>
+                      {(normalizedItem.replies || []).map((reply) => (
+                        <div key={reply.id} style={{ padding: "8px 10px", borderRadius: 12, background: "rgba(255,255,255,0.68)" }}>
+                          <strong style={{ fontSize: 12 }}>{reply.avatar} {reply.name}</strong>
+                          <p style={{ margin: "4px 0", fontSize: 13 }}>{reply.text}</p>
+                          <small>{reply.createdAt}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="reply-toggle-btn"
+                    onClick={() => setGeneralReplyOpen((prev) => ({ ...prev, [normalizedItem.id]: !prev[normalizedItem.id] }))}
+                    style={replyHintButtonStyle}
+                  >
+                    ↩ 已發送留言可直接在下方回覆
+                  </button>
+
+                  {(
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <input
+                        type="text"
+                        value={generalReplyInputs[normalizedItem.id] || ""}
+                        placeholder={`回覆 ${normalizedItem.name} 的留言...`}
+                        onChange={(e) => setGeneralReplyInputs((prev) => ({ ...prev, [normalizedItem.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") addGeneralReply(normalizedItem.id, generalReplyInputs[normalizedItem.id]);
+                        }}
+                        style={replyInputStyle}
+                      />
+                      <button type="button" onClick={() => addGeneralReply(normalizedItem.id, generalReplyInputs[normalizedItem.id])} style={replySendButtonStyle}>Send Reply</button>
+                    </div>
+                  )}
                 </div>
-                <p>{item.text}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -2179,7 +2433,7 @@ const addGeneralComment = () => {
         const post = gallery.find((item) => item.id === openPostId);
         if (!post) return null;
         const likes = post.likes || [];
-        const comments = post.comments || [];
+        const comments = (post.comments || []).map(normalizeWallComment);
         const favorites = post.favorites || [];
         const liked = likes.includes(currentUser.gmail);
         const favorited = favorites.includes(currentUser.gmail);
@@ -2288,6 +2542,68 @@ const addGeneralComment = () => {
                         <strong>{comment.name}</strong>
                         <p>{comment.text}</p>
                         <small>{comment.createdAt}</small>
+
+                        {(comment.replies || []).length > 0 && (
+                          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                            {(comment.replies || []).map((reply) => (
+                              <div key={reply.id} style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 12, background: "rgba(255,255,255,0.68)", border: "1px solid rgba(123,86,56,0.12)" }}>
+                                <span className="redbook-avatar" style={{ overflow: "hidden", display: "grid", placeItems: "center", width: "22px", height: "22px", minWidth: "22px", fontSize: "12px" }}>
+                                  {reply.avatar && (reply.avatar.startsWith("data:image") || reply.avatar.startsWith("blob:")) ? (
+                                    <img src={reply.avatar} alt="reply avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                                  ) : (
+                                    reply.avatar || "🌷"
+                                  )}
+                                </span>
+                                <div>
+                                  <strong style={{ fontSize: 12 }}>{reply.name}</strong>
+                                  <p style={{ margin: "2px 0", fontSize: 13 }}>{reply.text}</p>
+                                  <small>{reply.createdAt}</small>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          className="reply-toggle-btn"
+                          onClick={() => setModalReplyOpen((prev) => ({ ...prev, [comment.id]: !prev[comment.id] }))}
+                          style={replyHintButtonStyle}
+                        >
+                          ↩ 已發送留言可直接在下方回覆
+                        </button>
+
+                        {(
+                          <div className="wall-reply-box" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                            <input
+                              type="text"
+                              placeholder={`回覆 ${comment.name} 的留言...`}
+                              value={modalReplyInputs[comment.id] || ""}
+                              onChange={(e) => setModalReplyInputs((prev) => ({ ...prev, [comment.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && (modalReplyInputs[comment.id] || "").trim()) {
+                                  addWallComment(post.id, modalReplyInputs[comment.id].trim(), comment.id);
+                                  setModalReplyInputs((prev) => ({ ...prev, [comment.id]: "" }));
+                                  setModalReplyOpen((prev) => ({ ...prev, [comment.id]: false }));
+                                }
+                              }}
+                              style={replyInputStyle}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const text = (modalReplyInputs[comment.id] || "").trim();
+                                if (!text) return;
+                                addWallComment(post.id, text, comment.id);
+                                setModalReplyInputs((prev) => ({ ...prev, [comment.id]: "" }));
+                                setModalReplyOpen((prev) => ({ ...prev, [comment.id]: false }));
+                              }}
+                              style={replySendButtonStyle}
+                            >
+                              Send Reply
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
@@ -2498,7 +2814,7 @@ function App() {
     const wallItem = {
       id, imageKey, userId: currentUser?.id, name: currentUser?.nickname || "Guest",
       gmail: currentUser?.gmail || "", avatar: currentUser?.avatar,
-      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : `Shared photo strip: ${item.title}`),
+      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : item.type === "scrapbook" ? `Shared scrapbook: ${item.title || "Scrapbook Planner"}` : `Shared photo strip: ${item.title}`),
       createdAt: new Date().toLocaleString(), likes: [], comments: [], favorites: []
     };
 
@@ -2543,6 +2859,7 @@ function App() {
           <button className={activeTab === "photobooth" ? "active" : ""} onClick={() => setActiveTab("photobooth")}>Photo Booth Studio</button>
           <button className={activeTab === "storage" ? "active" : ""} onClick={() => setActiveTab("storage")}>My Storage</button>
           <button className={activeTab === "community" ? "active" : ""} onClick={() => setActiveTab("community")}>Community Wall</button>
+          <button className={activeTab === "scrapbook" ? "active" : ""} onClick={() => setActiveTab("scrapbook")}>Scrapbook Planner</button>
         </div>
       </header>
 
@@ -2609,6 +2926,7 @@ function App() {
 
       {activeTab === "storage" && <MyStoragePage refreshKey={refreshKey} currentUser={currentUser} onShareToWall={shareToWall} />}
       {activeTab === "community" && <CommunityWallPage refreshKey={refreshKey} currentUser={currentUser} />}
+      {activeTab === "scrapbook" && <ScrapbookPlanner currentUser={currentUser} onShareToWall={shareToWall} />}
 
       {/* ── 新增：更換頭像專用彈出視窗 (Modal) ── */}
       {avatarModalOpen && (
@@ -2680,3 +2998,4 @@ function App() {
 }
 
 export default App;
+
