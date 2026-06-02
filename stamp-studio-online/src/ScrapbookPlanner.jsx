@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import { toPng, toJpeg } from "html-to-image";
 
 const STORAGE_KEYS = {
   postcards: "stampStudio_savedPostcards",
@@ -1636,16 +1636,47 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
 
 
 
+  const isSafeColor = (value) => {
+    return (
+      typeof value === "string" &&
+      (
+        value.startsWith("rgb") ||
+        value.startsWith("#") ||
+        value === "transparent"
+      )
+    );
+  };
+
   const captureCanvasImage = async (type = "image/png", quality = 0.95) => {
-    if (!canvasRef.current) return null;
+    if (!canvasRef.current) {
+      throw new Error("沒有抓到手帳畫布 canvasRef");
+    }
+
     setSelectedId(null);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const canvas = await html2canvas(canvasRef.current, {
-      scale: 2,
-      backgroundColor: theme.paper,
-      useCORS: true
-    });
-    return canvas.toDataURL(type, quality);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const target = canvasRef.current;
+
+    const options = {
+      cacheBust: true,
+      pixelRatio: 1,
+      backgroundColor: "#fff8ed",
+      filter: (node) => {
+        return !(
+          node.classList?.contains("sp-resize-handle") ||
+          node.classList?.contains("sp-selected")
+        );
+      }
+    };
+
+    if (type === "image/jpeg") {
+      return await toJpeg(target, {
+        ...options,
+        quality
+      });
+    }
+
+    return await toPng(target, options);
   };
 
   const buildPdfBlobFromJpeg = (jpegDataUrl) => {
@@ -1694,8 +1725,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       link.download = `scrapbook-planner-${Date.now()}.png`;
       link.click();
     } catch (error) {
-      console.error(error);
-      alert("下載圖片失敗，請再試一次。");
+      console.error("Download PNG failed detail:", error);
+      alert(`下載圖片失敗：${error?.message || error}`);
     } finally {
       setDownloading(false);
     }
@@ -1746,15 +1777,33 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
   };
 
 
+  const stripHeavyImagesFromItems = (items) => {
+    return items.map((item) => {
+      const copy = { ...item };
+
+      // 避免把超大的 base64 圖片一起塞進 localStorage
+      delete copy.image;
+      delete copy.src;
+      delete copy.dataUrl;
+      delete copy.preview;
+      delete copy.thumbnail;
+
+      return copy;
+    });
+  };
+
   const storeCurrentToStorage = async () => {
     if (!onSaveArtwork) {
       alert("Storage is not connected yet. / 目前尚未接到作品庫功能。");
       return;
     }
+
     setDownloading(true);
+
     try {
-      const dataUrl = await captureCanvasImage("image/png");
+      const dataUrl = await captureCanvasImage("image/jpeg", 0.65);
       if (!dataUrl) return;
+
       const item = {
         id: makeId(),
         type: "scrapbook",
@@ -1762,13 +1811,23 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
         subtitle: `${stylePresets[styleName]?.label || "Style"} · ${canvasPresets[canvasPreset]?.label || "Canvas"}`,
         createdAt: new Date().toLocaleString(),
         image: dataUrl,
-        data: { styleName, templateType, year, month, dateValue, canvasPreset, orientation, items }
+        data: {
+          styleName,
+          templateType,
+          year,
+          month,
+          dateValue,
+          canvasPreset,
+          orientation,
+          items: stripHeavyImagesFromItems(items)
+        }
       };
+
       const ok = await onSaveArtwork("scrapbook", item);
       if (ok) alert("Saved to My Storage! / 已存到 My Storage！");
     } catch (error) {
-      console.error(error);
-      alert("Save failed. / 儲存失敗，請再試一次。");
+      console.error("Scrapbook save failed detail:", error);
+      alert(`Save failed：${error?.message || "未知錯誤，請看 Console"}`);
     } finally {
       setDownloading(false);
     }
