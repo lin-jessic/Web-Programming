@@ -18,7 +18,7 @@ import {
   addGeneralCommentToCloud,
   clearGalleryCloud,
   clearGeneralCommentsCloud
-} from "./sharedStore.js";
+} from "./old_shared.js";
 import "./App.css";
 
 const STORAGE_KEYS = {

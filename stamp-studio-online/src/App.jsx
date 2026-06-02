@@ -5,6 +5,23 @@ import UploadBooth from "./UploadBooth.jsx";
 import CameraBooth from "./CameraBooth.jsx";
 import BoothChoose from "./BoothChoose.jsx";
 import ScrapbookPlanner from "./ScrapbookPlanner.jsx";
+import {
+  listenGallery,
+  addGalleryPost,
+  deleteGalleryPost,
+  updateGalleryPost,
+  likeGalleryPost,
+  unlikeGalleryPost,
+  favoriteGalleryPost,
+  unfavoriteGalleryPost,
+  addGalleryComment,
+  listenGeneralComments,
+  addGeneralCommentToCloud,
+  clearGalleryCloud,
+  clearGeneralCommentsCloud,
+  updateGalleryComments,
+  updateGeneralCommentReplies,
+} from "./sharedStore.js";
 import "./App.css";
 
 const STORAGE_KEYS = {
@@ -1875,13 +1892,8 @@ function CommunityWallPage({ refreshKey, currentUser }) {
   const [wallFilter, setWallFilter] = useState("all");
 
   const loadWall = async () => {
-    const normalizedGallery = normalizeWallGallery(getList(STORAGE_KEYS.gallery));
-    saveList(STORAGE_KEYS.gallery, stripImages(normalizedGallery), MAX_GALLERY);
-    setGallery(await attachImages(normalizedGallery));
-    const normalizedComments = getList(STORAGE_KEYS.comments).map(normalizeWallComment);
-    setComments(normalizedComments);
-    saveList(STORAGE_KEYS.comments, normalizedComments, MAX_COMMENTS);
-
+    // My Storage 仍然使用本機 localStorage / IndexedDB，因為它是個人作品區。
+    // Community Wall 和 Live Comment Board 改由 Firebase 即時同步，不再讀本機 gallery/comments。
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
       (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
     );
@@ -1896,7 +1908,20 @@ function CommunityWallPage({ refreshKey, currentUser }) {
 
   useEffect(() => {
     loadWall();
-  }, [refreshKey]);
+
+    const unsubscribeGallery = listenGallery((cloudGallery) => {
+      setGallery(normalizeWallGallery(cloudGallery));
+    });
+
+    const unsubscribeComments = listenGeneralComments((cloudComments) => {
+      setComments(cloudComments.map(normalizeWallComment).slice(0, MAX_COMMENTS));
+    });
+
+    return () => {
+      unsubscribeGallery();
+      unsubscribeComments();
+    };
+  }, [refreshKey, currentUser.gmail]);
 
   const savedWorks = [...savedPostcards, ...savedPhotoBooths].sort(
     (a, b) => Number(b.id.split("-")[0]) - Number(a.id.split("-")[0])
@@ -1946,101 +1971,93 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       return;
     }
 
-    const id = makeId();
-    const imageKey = `wall_${id}`;
-    await saveImageToDB(imageKey, image);
+    try {
+      await addGalleryPost({
+        image,
+        userId: currentUser.id,
+        name: currentUser.nickname,
+        gmail: currentUser.gmail,
+        avatar: currentUser.avatar,
+        caption: caption || "Shared a new work.",
+      });
 
-    const item = {
-      id,
-      imageKey,
-      userId: currentUser.id,
-      name: currentUser.nickname,
-      gmail: currentUser.gmail,
-      avatar: currentUser.avatar,
-      caption: caption || "Shared a new work.",
-      createdAt: new Date().toLocaleString(),
-      image,
-      likes: [],
-      comments: [],
-      favorites: []
-    };
-
-    const next = [item, ...gallery];
-    setGallery(next.slice(0, MAX_GALLERY));
-    const ok = saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
-
-    if (ok) {
       setWallCaption("");
       setWallImage(null);
       setSelectedWorkId("");
       setShareModalItem(null);
+      setShareCaption("");
+      setWallFilter("all");
+    } catch (error) {
+      console.error("Post to Firebase wall failed.", error);
+      alert("發布失敗：請確認 Firebase Rules、網路連線，或圖片是否太大。");
     }
   };
 
-  const toggleLike = (postId) => {
-    const next = gallery.map((item) => {
-      if (item.id !== postId) return item;
+  const toggleLike = async (postId) => {
+    const target = gallery.find((item) => item.id === postId);
+    if (!target) return;
 
-      const likes = item.likes || [];
-      const alreadyLiked = likes.includes(currentUser.gmail);
+    const likes = target.likes || [];
+    const alreadyLiked = likes.includes(currentUser.gmail);
 
-      return {
-        ...item,
-        likes: alreadyLiked
-          ? likes.filter((gmail) => gmail !== currentUser.gmail)
-          : [...likes, currentUser.gmail]
-      };
-    });
-
-    setGallery(next);
-    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+    try {
+      if (alreadyLiked) {
+        await unlikeGalleryPost(postId, currentUser.gmail);
+      } else {
+        await likeGalleryPost(postId, currentUser.gmail);
+      }
+    } catch (error) {
+      console.error("Toggle like failed.", error);
+      alert("按讚失敗，請稍後再試。");
+    }
   };
 
-  const toggleFavorite = (postId) => {
-    const next = gallery.map((item) => {
-      if (item.id !== postId) return item;
+  const toggleFavorite = async (postId) => {
+    const target = gallery.find((item) => item.id === postId);
+    if (!target) return;
 
-      const favorites = item.favorites || [];
-      const alreadyFavorited = favorites.includes(currentUser.gmail);
+    const favorites = target.favorites || [];
+    const alreadyFavorited = favorites.includes(currentUser.gmail);
 
-      return {
-        ...item,
-        favorites: alreadyFavorited
-          ? favorites.filter((gmail) => gmail !== currentUser.gmail)
-          : [...favorites, currentUser.gmail]
-      };
-    });
-
-    setGallery(next);
-    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+    try {
+      if (alreadyFavorited) {
+        await unfavoriteGalleryPost(postId, currentUser.gmail);
+      } else {
+        await favoriteGalleryPost(postId, currentUser.gmail);
+      }
+    } catch (error) {
+      console.error("Toggle favorite failed.", error);
+      alert("收藏失敗，請稍後再試。");
+    }
   };
 
   const deleteWallPost = async (postId) => {
-    const target = gallery.find((item) => item.id === postId);
-    if (target?.imageKey) {
-      await deleteImageFromDB(target.imageKey);
+    try {
+      await deleteGalleryPost(postId);
+      if (openPostId === postId) setOpenPostId(null);
+    } catch (error) {
+      console.error("Delete cloud post failed.", error);
+      alert("刪除失敗，請稍後再試。");
     }
-    const next = gallery.filter((item) => item.id !== postId);
-    setGallery(next);
-    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
-    if (openPostId === postId) setOpenPostId(null);
   };
 
-  const editWallPost = (postId, newCaption) => {
-    const next = gallery.map((item) => {
-      if (item.id !== postId) return item;
-      return { ...item, caption: newCaption };
-    });
-
-    setGallery(next);
-    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+  const editWallPost = async (postId, newCaption) => {
+    try {
+      await updateGalleryPost(postId, newCaption);
+    } catch (error) {
+      console.error("Update cloud post failed.", error);
+      alert("編輯失敗，請稍後再試。");
+    }
   };
 
-  const addWallComment = (postId, text, parentCommentId = null) => {
+  const addWallComment = async (postId, text, parentCommentId = null) => {
     const cleanText = String(text || "").trim();
     if (!cleanText) return;
 
-    const makeCommentPayload = () => ({
+    const targetPost = gallery.find((item) => item.id === postId);
+    if (!targetPost) return;
+
+    const payload = {
       id: makeId(),
       userId: currentUser.id || currentUser.gmail,
       gmail: currentUser.gmail,
@@ -2049,94 +2066,82 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       text: cleanText,
       createdAt: new Date().toLocaleString(),
       replies: []
-    });
-
-    const addReplyToCommentTree = (comments, parentId, replyPayload) => {
-      let found = false;
-      const nextComments = comments.map((comment) => {
-        if (String(comment.id) === String(parentId)) {
-          found = true;
-          return {
-            ...comment,
-            replies: [...(comment.replies || []), replyPayload].slice(-30)
-          };
-        }
-
-        if ((comment.replies || []).length > 0) {
-          const result = addReplyToCommentTree(comment.replies, parentId, replyPayload);
-          if (result.found) {
-            found = true;
-            return { ...comment, replies: result.comments };
-          }
-        }
-
-        return comment;
-      });
-
-      return { comments: nextComments, found };
     };
 
-    setGallery((prevGallery) => {
-      const normalizedGallery = normalizeWallGallery(prevGallery);
-      let didUpdate = false;
-
-      const next = normalizedGallery.map((item) => {
-        if (item.id !== postId) return item;
-
-        didUpdate = true;
-        const oldComments = (item.comments || []).map(normalizeWallComment);
-        const payload = makeCommentPayload();
-
-        if (parentCommentId) {
-          const result = addReplyToCommentTree(oldComments, parentCommentId, payload);
-          if (!result.found) {
-            alert("找不到要回覆的留言，請重新整理後再試一次。");
-            return item;
-          }
-          return { ...item, comments: result.comments };
-        }
-
-        return {
-          ...item,
-          comments: [payload, ...oldComments].slice(0, 30)
-        };
-      });
-
-      if (didUpdate) {
-        saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+    try {
+      if (!parentCommentId) {
+        await addGalleryComment(postId, payload);
+        return;
       }
 
-      return next;
-    });
+      const addReplyToCommentTree = (comments, parentId, replyPayload) => {
+        let found = false;
+        const nextComments = comments.map((comment) => {
+          const normalized = normalizeWallComment(comment);
+          if (String(normalized.id) === String(parentId)) {
+            found = true;
+            return {
+              ...normalized,
+              replies: [...(normalized.replies || []), replyPayload].slice(-30)
+            };
+          }
+
+          if ((normalized.replies || []).length > 0) {
+            const result = addReplyToCommentTree(normalized.replies, parentId, replyPayload);
+            if (result.found) {
+              found = true;
+              return { ...normalized, replies: result.comments };
+            }
+          }
+
+          return normalized;
+        });
+
+        return { comments: nextComments, found };
+      };
+
+      const oldComments = (targetPost.comments || []).map(normalizeWallComment);
+      const result = addReplyToCommentTree(oldComments, parentCommentId, payload);
+      if (!result.found) {
+        alert("找不到要回覆的留言，請重新整理後再試一次。");
+        return;
+      }
+      await updateGalleryComments(postId, result.comments);
+    } catch (error) {
+      console.error("Add wall comment failed.", error);
+      alert("留言失敗，請稍後再試。");
+    }
   };
 
-  const addGeneralComment = () => {
-    if (!commentText.trim()) {
+  const addGeneralComment = async () => {
+    const cleanText = commentText.trim();
+    if (!cleanText) {
       alert("請先輸入留言內容！");
       return;
     }
 
-    const item = {
-      id: makeId(),
-      userId: currentUser.id,
-      gmail: currentUser.gmail,
-      name: currentUser.nickname,
-      avatar: currentUser.avatar,
-      text: commentText,
-      createdAt: new Date().toLocaleString(),
-      replies: []
-    };
+    try {
+      await addGeneralCommentToCloud({
+        userId: currentUser.id,
+        gmail: currentUser.gmail,
+        name: currentUser.nickname,
+        avatar: currentUser.avatar,
+        text: cleanText,
+      });
 
-    const next = [item, ...comments];
-    setComments(next.slice(0, MAX_COMMENTS));
-    saveList(STORAGE_KEYS.comments, next, MAX_COMMENTS);
-
-    setCommentText("");
+      setCommentText("");
+    } catch (error) {
+      console.error("Add general comment failed.", error);
+      alert("留言失敗，請確認 Firebase Rules 或網路連線。");
+    }
   };
 
-  const addGeneralReply = (commentId, text) => {
+  const addGeneralReply = async (commentId, text) => {
     const cleanText = String(text || "").trim();
     if (!cleanText) return;
+
+    const targetComment = comments.find((comment) => String(comment.id) === String(commentId));
+    if (!targetComment) return;
 
     const reply = {
       id: makeId(),
@@ -2149,31 +2154,39 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       replies: []
     };
 
-    const next = comments.map((comment) => {
-      const normalized = normalizeWallComment(comment);
-      if (String(normalized.id) !== String(commentId)) return normalized;
-      return {
-        ...normalized,
-        replies: [...(normalized.replies || []), reply].slice(-30)
-      };
-    });
-
-    setComments(next);
-    saveList(STORAGE_KEYS.comments, next, MAX_COMMENTS);
-    setGeneralReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
-    setGeneralReplyOpen((prev) => ({ ...prev, [commentId]: false }));
+    try {
+      const normalized = normalizeWallComment(targetComment);
+      const nextReplies = [...(normalized.replies || []), reply].slice(-30);
+      await updateGeneralCommentReplies(commentId, nextReplies);
+      setGeneralReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
+      setGeneralReplyOpen((prev) => ({ ...prev, [commentId]: false }));
+    } catch (error) {
+      console.error("Add general reply failed.", error);
+      alert("回覆失敗，請稍後再試。");
+    }
   };
 
   const clearWall = async () => {
-    const current = getList(STORAGE_KEYS.gallery);
-    await Promise.all(current.map((item) => deleteImageFromDB(item.imageKey)));
-    localStorage.removeItem(STORAGE_KEYS.gallery);
-    setGallery([]);
+    if (!window.confirm("確定要清空所有 Community Wall 作品嗎？")) return;
+
+    try {
+      await clearGalleryCloud();
+      setOpenPostId(null);
+    } catch (error) {
+      console.error("Clear cloud wall failed.", error);
+      alert("清空失敗，請稍後再試。");
+    }
   };
 
-  const clearComments = () => {
-    localStorage.removeItem(STORAGE_KEYS.comments);
-    setComments([]);
+  const clearComments = async () => {
+    if (!window.confirm("確定要清空所有留言嗎？")) return;
+
+    try {
+      await clearGeneralCommentsCloud();
+    } catch (error) {
+      console.error("Clear cloud comments failed.", error);
+      alert("清空留言失敗，請稍後再試。");
+    }
   };
 
   const filteredGallery = gallery.filter((item) => {
@@ -2818,23 +2831,35 @@ function App() {
   };
 
   const shareToWall = async (item) => {
-    const current = getList(STORAGE_KEYS.gallery);
-    const id = makeId();
-    const imageKey = `wall_${id}`;
-    const imageSource = item.image || (await getImageFromDB(item.imageKey));
-    if (!imageSource) { alert("分享失敗：找不到作品圖片。"); return; }
-    await saveImageToDB(imageKey, imageSource);
+    try {
+      const imageSource = item.image || (await getImageFromDB(item.imageKey));
 
-    const wallItem = {
-      id, imageKey, userId: currentUser?.id, name: currentUser?.nickname || "Guest",
-      gmail: currentUser?.gmail || "", avatar: currentUser?.avatar,
-      caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : item.type === "scrapbook" ? `Shared scrapbook: ${item.title || "Scrapbook"}` : `Shared photo strip: ${item.title}`),
-      createdAt: new Date().toLocaleString(), likes: [], comments: [], favorites: []
-    };
+      if (!imageSource) {
+        alert("分享失敗：找不到作品圖片。");
+        return;
+      }
 
-    const next = [wallItem, ...current];
-    const ok = saveList(STORAGE_KEYS.gallery, next, MAX_GALLERY);
-    if (ok) { setRefreshKey((prev) => prev + 1); alert("已分享到 Community Wall！"); }
+      await addGalleryPost({
+        image: imageSource,
+        userId: currentUser?.id,
+        name: currentUser?.nickname || "Guest",
+        gmail: currentUser?.gmail || "",
+        avatar: currentUser?.avatar || "🌷",
+        caption:
+          item.caption ||
+          (item.type === "postcard"
+            ? `Shared postcard: ${item.title}`
+            : item.type === "scrapbook"
+              ? `Shared scrapbook: ${item.title || "Scrapbook"}`
+              : `Shared photo strip: ${item.title}`),
+      });
+
+      setRefreshKey((prev) => prev + 1);
+      alert("已分享到 Community Wall！");
+    } catch (error) {
+      console.error("Share to cloud wall failed.", error);
+      alert("分享失敗：請確認 Firebase 設定、Firestore Rules 或圖片大小是否過大。");
+    }
   };
 
   const dispatchScrapbookAction = (actionName) => {

@@ -8,8 +8,6 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   arrayUnion,
   arrayRemove,
@@ -23,16 +21,28 @@ const commentsRef = collection(db, "stampStudioComments");
 
 // 即時監聽 Community Wall
 export function listenGallery(callback) {
-  const q = query(galleryRef, orderBy("createdAtTime", "desc"));
+  const unsubscribe = onSnapshot(
+    galleryRef,
+    (snapshot) => {
+      const gallery = snapshot.docs
+        .map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }))
+        .sort((a, b) => {
+          const timeA = a.createdAtTime?.toMillis?.() || 0;
+          const timeB = b.createdAtTime?.toMillis?.() || 0;
+          return timeB - timeA;
+        });
 
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    const gallery = snapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-
-    callback(gallery);
-  });
+      console.log("Firebase gallery loaded:", gallery);
+      callback(gallery);
+    },
+    (error) => {
+      console.error("listenGallery Firebase error:", error);
+      alert("讀取 Community Wall 失敗，請確認 Firebase Rules / Environment Variables。");
+    }
+  );
 
   return unsubscribe;
 }
@@ -41,7 +51,7 @@ export function listenGallery(callback) {
 export async function addGalleryPost(postData) {
   return await addDoc(galleryRef, {
     image: postData.image || "",
-    imageKey: "",
+    imageKey: postData.imageKey || "",
     userId: postData.userId || "",
     name: postData.name || "Guest",
     gmail: postData.gmail || "",
@@ -68,6 +78,16 @@ export async function updateGalleryPost(postId, newCaption) {
 
   return await updateDoc(postDoc, {
     caption: newCaption,
+    updatedAtTime: serverTimestamp(),
+  });
+}
+
+// 更新作品留言陣列，支援回覆留言
+export async function updateGalleryComments(postId, comments) {
+  const postDoc = doc(db, "stampStudioGallery", postId);
+
+  return await updateDoc(postDoc, {
+    comments,
     updatedAtTime: serverTimestamp(),
   });
 }
@@ -118,14 +138,14 @@ export async function addGalleryComment(postId, commentData) {
 
   return await updateDoc(postDoc, {
     comments: arrayUnion({
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      id: commentData.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       userId: commentData.userId || commentData.gmail || "",
       gmail: commentData.gmail || "",
       name: commentData.name || "Guest",
       avatar: commentData.avatar || "🌷",
       text: commentData.text || "",
-      createdAt: new Date().toLocaleString(),
-      replies: [],
+      createdAt: commentData.createdAt || new Date().toLocaleString(),
+      replies: commentData.replies || [],
     }),
     updatedAtTime: serverTimestamp(),
   });
@@ -133,16 +153,28 @@ export async function addGalleryComment(postId, commentData) {
 
 // 即時監聽一般留言板
 export function listenGeneralComments(callback) {
-  const q = query(commentsRef, orderBy("createdAtTime", "desc"));
+  const unsubscribe = onSnapshot(
+    commentsRef,
+    (snapshot) => {
+      const comments = snapshot.docs
+        .map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }))
+        .sort((a, b) => {
+          const timeA = a.createdAtTime?.toMillis?.() || 0;
+          const timeB = b.createdAtTime?.toMillis?.() || 0;
+          return timeB - timeA;
+        });
 
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    const comments = snapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-
-    callback(comments);
-  });
+      console.log("Firebase comments loaded:", comments);
+      callback(comments);
+    },
+    (error) => {
+      console.error("listenGeneralComments Firebase error:", error);
+      alert("讀取 Live Comment Board 失敗，請確認 Firebase Rules / Environment Variables。");
+    }
+  );
 
   return unsubscribe;
 }
@@ -158,6 +190,16 @@ export async function addGeneralCommentToCloud(commentData) {
     createdAt: new Date().toLocaleString(),
     createdAtTime: serverTimestamp(),
     replies: [],
+  });
+}
+
+// 更新一般留言回覆
+export async function updateGeneralCommentReplies(commentId, replies) {
+  const commentDoc = doc(db, "stampStudioComments", commentId);
+
+  return await updateDoc(commentDoc, {
+    replies,
+    updatedAtTime: serverTimestamp(),
   });
 }
 
