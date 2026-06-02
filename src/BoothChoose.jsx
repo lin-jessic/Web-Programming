@@ -49,7 +49,7 @@ function BoothChoose({ onSelectMode }) {
           <span style={{ fontSize: "50px", display: "block", marginBottom: "15px" }}>📁</span>
           <h3 style={{ margin: "10px 0", color: "#6a3d24", fontSize: "22px", fontWeight: "bold" }}>UploadBooth</h3>
           <p style={{ fontSize: "14px", color: "#8a674d", lineHeight: "1.5", margin: 0 }}>
-            上傳本地相簿照片<br />進行 3D 質感拍貼印製動畫
+            上傳本地相簿照片<br />進行 3D 質感Booth印製動畫
           </p>
         </div>
        

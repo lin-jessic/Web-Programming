@@ -718,7 +718,7 @@ function UploadBooth({ onSaveArtwork }) {
     const item = {
       id: makeId(),
       type: "photobooth",
-      title: photoTitle || "Untitled Photo Strip",
+      title: photoTitle || "Untitled Booth",
       subtitle: `${layoutCount}-Cut · ${photoSubtitle}`,
       createdAt: new Date().toLocaleString(),
       image: printedResult,
@@ -732,7 +732,7 @@ function UploadBooth({ onSaveArtwork }) {
     };
 
     onSaveArtwork("photobooth", item);
-    alert("3D 拍貼作品已存到 My Storage！");
+    alert("3D Booth作品已存到 My Storage！");
   };
 
   const clearBooth = () => {
@@ -752,7 +752,7 @@ function UploadBooth({ onSaveArtwork }) {
   return (
     <div className="studio-layout">
       <section className="control-panel">
-        <h2>Photo Booth Studio</h2>
+        <h2>Booth Studio</h2>
 
         <div className="tool-group">
           <label>Layout</label>
@@ -929,7 +929,7 @@ function UploadBooth({ onSaveArtwork }) {
       <section className="preview-area three-booth-preview">
         <div className="three-booth-title">
           <div>
-            <h3>3D Instant Photo Booth</h3>
+            <h3>3D Instant Booth</h3>
             <p>
               Upload your photos, choose 3-cut or 4-cut, then print the strip
               from a 3D booth machine.
@@ -966,7 +966,7 @@ function UploadBooth({ onSaveArtwork }) {
           {printedResult ? (
             <div className="printed-result-box">
               <img src={printedResult} alt="printed result" />
-              <p>這是輸出的 3-cut / 4-cut 拍貼結果，可下載或存到 My Storage。</p>
+              <p>這是輸出的 3-cut / 4-cut Booth結果，可下載或存到 My Storage。</p>
             </div>
           ) : (
             <div className="empty-result">尚未產生輸出結果。</div>
