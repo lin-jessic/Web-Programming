@@ -5,23 +5,6 @@ import UploadBooth from "./UploadBooth.jsx";
 import CameraBooth from "./CameraBooth.jsx";
 import BoothChoose from "./BoothChoose.jsx";
 import ScrapbookPlanner from "./ScrapbookPlanner.jsx";
-import {
-  listenGallery,
-  addGalleryPost,
-  deleteGalleryPost,
-  updateGalleryPost,
-  likeGalleryPost,
-  unlikeGalleryPost,
-  favoriteGalleryPost,
-  unfavoriteGalleryPost,
-  addGalleryComment,
-  listenGeneralComments,
-  addGeneralCommentToCloud,
-  clearGalleryCloud,
-  clearGeneralCommentsCloud,
-  updateGalleryComments,
-  updateGeneralCommentReplies,
-} from "./sharedStore.js";
 import "./App.css";
 
 const STORAGE_KEYS = {
@@ -298,7 +281,7 @@ function AuthPage({ onLogin }) {
   const [mode, setMode] = useState("login");
   const [gmail, setGmail] = useState("");
   const [nickname, setNickname] = useState("");
-  const [bio, setBio] = useState("I love creating postcards and photo strips.");
+  const [bio, setBio] = useState("I love creating postcards and booth works.");
   const [avatar, setAvatar] = useState("🌷");
 
   const avatarOptions = ["🌷", "🌙", "⭐", "📮", "🎀", "🍍", "🐻", "🧸"];
@@ -574,7 +557,7 @@ function PostcardStudio({ onSaveArtwork }) {
           setRotationY(oldRotationY);
 
           if (!image) {
-            alert("儲存失敗：沒有抓到明信片畫面。");
+            alert("儲存失敗：沒有抓到Postcard畫面。");
             return;
           }
 
@@ -589,7 +572,7 @@ function PostcardStudio({ onSaveArtwork }) {
           };
 
           const ok = await onSaveArtwork("postcard", item);
-          if (ok) alert("明信片已成功存到 My Storage！");
+          if (ok) alert("Postcard已成功存到 My Storage！");
         } catch (error) {
           console.error(error);
           setRotationX(oldRotationX);
@@ -622,7 +605,7 @@ function PostcardStudio({ onSaveArtwork }) {
     setRotationX(-8);
     setRotationY(0);
 
-    alert("已清除明信片內容！");
+    alert("已清除Postcard內容！");
   };
 
 
@@ -1109,7 +1092,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
     setPhotos([null, null, null, null]);
     setPrinting(false);
     setPrintedResult(null);
-    alert("已清除拍貼機內容！");
+    alert("已清除Booth內容！");
   };
 
   const handlePhotoUpload = (index, event) => {
@@ -1171,7 +1154,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
 
       const image = await makeResultImage();
       if (!image) {
-        alert("儲存失敗：沒有抓到拍貼結果。");
+        alert("儲存失敗：沒有抓到Booth結果。");
         return;
       }
 
@@ -1180,7 +1163,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
       const item = {
         id: makeId(),
         type: "photobooth",
-        title: photoTitle || "Untitled Photo Strip",
+        title: photoTitle || "Untitled Booth",
         subtitle: `${layoutCount}-Cut · ${photoSubtitle}`,
         createdAt: new Date().toLocaleString(),
         image,
@@ -1188,7 +1171,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
       };
 
       const ok = await onSaveArtwork("photobooth", item);
-      if (ok) alert("拍貼作品已成功存到 My Storage！");
+      if (ok) alert("Booth作品已成功存到 My Storage！");
     } catch (error) {
       console.error(error);
       alert("儲存失敗：請先按 Reset Local Demo Data 清除舊的大圖資料。");
@@ -1206,7 +1189,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
   return (
     <div className="studio-layout">
       <section className="control-panel">
-        <h2>Photo Booth Studio</h2>
+        <h2>Booth Studio</h2>
 
         <div className="tool-group">
           <label>Layout</label>
@@ -1360,7 +1343,7 @@ function PhotoBoothStudio({ onSaveArtwork }) {
 
             <div className="booth-button-area">
               <button className="big-print-btn" onClick={printAndShowResult}>
-                Print Photo Strip
+                Print Booth
               </button>
 
               <button className="big-download-btn" onClick={downloadStrip}>
@@ -1376,11 +1359,11 @@ function PhotoBoothStudio({ onSaveArtwork }) {
           {printedResult ? (
             <div className="printed-result-box">
               <img src={printedResult} alt="printed result" />
-              <p>這是輸出的拍貼結果，可以下載或存到 My Storage。</p>
+              <p>這是輸出的Booth結果，可以下載或存到 My Storage。</p>
             </div>
           ) : (
             <div className="empty-result">
-              還沒有輸出結果，請先按 Print Photo Strip。
+              還沒有輸出結果，請先按 Print Booth。
             </div>
           )}
         </div>
@@ -1396,6 +1379,7 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
   const [filter, setFilter] = useState("all");
   const [sharePreviewItem, setSharePreviewItem] = useState(null);
   const [sharePreviewCaption, setSharePreviewCaption] = useState("");
+  const [openStorageItem, setOpenStorageItem] = useState(null);
 
   const loadStorage = async () => {
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
@@ -1448,6 +1432,13 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
     setter([]);
   };
 
+  const clearAllStorage = async () => {
+    if (!window.confirm("Clear all of your stored works? / 確定清除自己的所有作品嗎？")) return;
+    await clearType("postcard");
+    await clearType("photobooth");
+    await clearType("scrapbook");
+  };
+
   const items =
     filter === "postcard"
       ? postcards
@@ -1480,36 +1471,44 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
         <div>
           <h2>My Storage</h2>
           <p>
-            Postcards: {postcards.length}/{MAX_POSTCARDS} · Photo Strips:{" "}
-            {photoBooths.length}/{MAX_PHOTOBOOTHS} · Scrapbooks: {scrapbooks.length}/{MAX_SCRAPBOOKS}
+            Postcard: {postcards.length}/{MAX_POSTCARDS} · Booth:{" "}
+            {photoBooths.length}/{MAX_PHOTOBOOTHS} · Techo: {scrapbooks.length}/{MAX_SCRAPBOOKS}
           </p>
         </div>
 
-        <div className="storage-filters">
-          <button
-            className={filter === "all" ? "active" : ""}
-            onClick={() => setFilter("all")}
-          >
-            All
-          </button>
-          <button
-            className={filter === "postcard" ? "active" : ""}
-            onClick={() => setFilter("postcard")}
-          >
-            Postcards
-          </button>
-          <button
-            className={filter === "photobooth" ? "active" : ""}
-            onClick={() => setFilter("photobooth")}
-          >
-            Photo Booth
-          </button>
-          <button
-            className={filter === "scrapbook" ? "active" : ""}
-            onClick={() => setFilter("scrapbook")}
-          >
-            Scrapbook
-          </button>
+        <div className="storage-filter-stack">
+          <div className="storage-filters storage-filter-grid">
+            <button
+              className={filter === "all" ? "active" : ""}
+              onClick={() => setFilter("all")}
+            >
+              All
+            </button>
+            <button
+              className={filter === "postcard" ? "active" : ""}
+              onClick={() => setFilter("postcard")}
+            >
+              Postcard
+            </button>
+            <button
+              className={filter === "photobooth" ? "active" : ""}
+              onClick={() => setFilter("photobooth")}
+            >
+              Booth
+            </button>
+            <button
+              className={filter === "scrapbook" ? "active" : ""}
+              onClick={() => setFilter("scrapbook")}
+            >
+              Techo
+            </button>
+          </div>
+          <div className="storage-actions storage-clear-actions storage-clear-grid">
+            <button className="danger-btn" onClick={clearAllStorage}>Clear All</button>
+            <button onClick={() => clearType("postcard")}>Clear Postcard</button>
+            <button onClick={() => clearType("photobooth")}>Clear Booth</button>
+            <button onClick={() => clearType("scrapbook")}>Clear Techo</button>
+          </div>
         </div>
       </div>
 
@@ -1517,27 +1516,19 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
         每一類最多儲存 30 個作品，超過後會自動保留最新 30 個。
       </div>
 
-      <div className="storage-actions">
-        <button onClick={() => clearType("postcard")}>Clear Postcards</button>
-        <button onClick={() => clearType("photobooth")}>
-          Clear Photo Booths
-        </button>
-        <button onClick={() => clearType("scrapbook")}>Clear Scrapbooks</button>
-      </div>
-
       {items.length === 0 ? (
         <div className="empty-storage">
-          目前還沒有作品，請先到 Postcard、Booth 或 Scrapbook 按 Save / Store to My Storage。
+          目前還沒有作品，請先到 Postcard、Booth 或 Techo 按 Save / Store to My Storage。
         </div>
       ) : (
         <div className="storage-grid">
           {items.map((item) => (
             <div className="storage-item" key={item.id}>
-              <img src={item.image} alt={item.title} />
+              <img src={item.image} alt={item.title} onClick={() => setOpenStorageItem(item)} style={{ cursor: "zoom-in" }} />
 
               <div className="storage-item-body">
                 <div className="item-type">
-                  {item.type === "postcard" ? "Postcard" : item.type === "scrapbook" ? "Scrapbook" : "Photo Booth"}
+                  {item.type === "postcard" ? "Postcard" : item.type === "scrapbook" ? "Techo" : "Booth"}
                 </div>
                 <h3>{item.title}</h3>
                 <p>{item.subtitle}</p>
@@ -1551,7 +1542,7 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
                         item.type === "postcard"
                           ? "saved-postcard.png"
                           : item.type === "scrapbook"
-                            ? "saved-scrapbook.png"
+                            ? "saved-techo.png"
                             : "saved-photo-strip.png"
                       )
                     }
@@ -1563,10 +1554,10 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
                     setSharePreviewItem(item);
                     setSharePreviewCaption(
                       item.type === "postcard"
-                        ? `Shared postcard: ${item.title}`
+                        ? `Shared Postcard: ${item.title}`
                         : item.type === "scrapbook"
-                          ? `Shared scrapbook: ${item.title}`
-                          : `Shared photo strip: ${item.title}`
+                          ? `Shared Techo: ${item.title}`
+                          : `Shared Booth: ${item.title}`
                     );
                   }}>
                     Share to Wall
@@ -1584,6 +1575,23 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
           ))}
         </div>
       )}
+      {openStorageItem && (
+        <div className="output-preview-overlay" onClick={() => setOpenStorageItem(null)}>
+          <div className="output-preview-modal storage-preview-modal" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+            <div className="output-preview-header">
+              <div>
+                <h3>{openStorageItem.title || "Stored Work"}</h3>
+                <p>{openStorageItem.type === "scrapbook" ? "Techo" : openStorageItem.type === "postcard" ? "Postcard" : "Booth"}</p>
+              </div>
+              <button className="output-close-btn" onClick={() => setOpenStorageItem(null)}>×</button>
+            </div>
+            <div style={{ maxHeight: "70vh", overflow: "auto", display: "grid", placeItems: "center", background: "#fff7f0", borderRadius: 18, padding: 12 }}>
+              <img src={openStorageItem.image} alt={openStorageItem.title} style={{ maxWidth: "100%", height: "auto", borderRadius: 14 }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {sharePreviewItem && (
         <div
           className="output-preview-overlay"
@@ -1645,7 +1653,7 @@ function MyStoragePage({ refreshKey, currentUser, onShareToWall }) {
               marginBottom: 16
             }}>
               <div style={{ fontWeight: "bold", color: "#5b3924", fontSize: 14 }}>
-                {sharePreviewItem.type === "postcard" ? "📬 Postcard" : "📷 Photo Booth"}
+                {sharePreviewItem.type === "postcard" ? "📬 Postcard" : sharePreviewItem.type === "scrapbook" ? "📒 Techo" : "📷 Booth"}
                 {" · "}{sharePreviewItem.title}
               </div>
               <div style={{ fontSize: 12, color: "#96755c", marginTop: 4 }}>
@@ -1726,7 +1734,7 @@ function WallPostCard({ item, index, currentUser, onLike, onFavorite, onDelete, 
 
   return (
     <div className={`pin-card redbook-card pin-size-${(index % 4) + 1}`}>
-      <div className="pin-image-wrap">
+      <div className="pin-image-wrap" onClick={onOpen} style={{ cursor: "zoom-in" }}>
         <img src={item.image} alt={item.caption} />
 
         <div className="pin-hover-layer">
@@ -1888,12 +1896,19 @@ function CommunityWallPage({ refreshKey, currentUser }) {
   const [openPostId, setOpenPostId] = useState(null); 
   const [modalReplyInputs, setModalReplyInputs] = useState({});
   const [modalReplyOpen, setModalReplyOpen] = useState({});
+  const [modalEditingPostId, setModalEditingPostId] = useState(null);
+  const [modalEditCaption, setModalEditCaption] = useState("");
   
   const [wallFilter, setWallFilter] = useState("all");
 
   const loadWall = async () => {
-    // My Storage 仍然使用本機 localStorage / IndexedDB，因為它是個人作品區。
-    // Community Wall 和 Live Comment Board 改由 Firebase 即時同步，不再讀本機 gallery/comments。
+    const normalizedGallery = normalizeWallGallery(getList(STORAGE_KEYS.gallery));
+    saveList(STORAGE_KEYS.gallery, stripImages(normalizedGallery), MAX_GALLERY);
+    setGallery(await attachImages(normalizedGallery));
+    const normalizedComments = getList(STORAGE_KEYS.comments).map(normalizeWallComment);
+    setComments(normalizedComments);
+    saveList(STORAGE_KEYS.comments, normalizedComments, MAX_COMMENTS);
+
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
       (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
     );
@@ -1908,20 +1923,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
 
   useEffect(() => {
     loadWall();
-
-    const unsubscribeGallery = listenGallery((cloudGallery) => {
-      setGallery(normalizeWallGallery(cloudGallery));
-    });
-
-    const unsubscribeComments = listenGeneralComments((cloudComments) => {
-      setComments(cloudComments.map(normalizeWallComment).slice(0, MAX_COMMENTS));
-    });
-
-    return () => {
-      unsubscribeGallery();
-      unsubscribeComments();
-    };
-  }, [refreshKey, currentUser.gmail]);
+  }, [refreshKey]);
 
   const savedWorks = [...savedPostcards, ...savedPhotoBooths].sort(
     (a, b) => Number(b.id.split("-")[0]) - Number(a.id.split("-")[0])
@@ -1958,8 +1960,8 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       if (!wallCaption.trim()) {
         setWallCaption(
           work.type === "postcard"
-            ? `Shared postcard: ${work.title}`
-            : `Shared photo strip: ${work.title}`
+            ? `Shared Postcard: ${work.title}`
+            : `Shared Booth: ${work.title}`
         );
       }
     }
@@ -1971,93 +1973,101 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       return;
     }
 
-    try {
-      await addGalleryPost({
-        image,
-        userId: currentUser.id,
-        name: currentUser.nickname,
-        gmail: currentUser.gmail,
-        avatar: currentUser.avatar,
-        caption: caption || "Shared a new work.",
-      });
+    const id = makeId();
+    const imageKey = `wall_${id}`;
+    await saveImageToDB(imageKey, image);
 
+    const item = {
+      id,
+      imageKey,
+      userId: currentUser.id,
+      name: currentUser.nickname,
+      gmail: currentUser.gmail,
+      avatar: currentUser.avatar,
+      caption: caption || "Shared a new work.",
+      createdAt: new Date().toLocaleString(),
+      image,
+      likes: [],
+      comments: [],
+      favorites: []
+    };
+
+    const next = [item, ...gallery];
+    setGallery(next.slice(0, MAX_GALLERY));
+    const ok = saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+
+    if (ok) {
       setWallCaption("");
       setWallImage(null);
       setSelectedWorkId("");
       setShareModalItem(null);
-      setShareCaption("");
-      setWallFilter("all");
-    } catch (error) {
-      console.error("Post to Firebase wall failed.", error);
-      alert("發布失敗：請確認 Firebase Rules、網路連線，或圖片是否太大。");
     }
   };
 
-  const toggleLike = async (postId) => {
-    const target = gallery.find((item) => item.id === postId);
-    if (!target) return;
+  const toggleLike = (postId) => {
+    const next = gallery.map((item) => {
+      if (item.id !== postId) return item;
 
-    const likes = target.likes || [];
-    const alreadyLiked = likes.includes(currentUser.gmail);
+      const likes = item.likes || [];
+      const alreadyLiked = likes.includes(currentUser.gmail);
 
-    try {
-      if (alreadyLiked) {
-        await unlikeGalleryPost(postId, currentUser.gmail);
-      } else {
-        await likeGalleryPost(postId, currentUser.gmail);
-      }
-    } catch (error) {
-      console.error("Toggle like failed.", error);
-      alert("按讚失敗，請稍後再試。");
-    }
+      return {
+        ...item,
+        likes: alreadyLiked
+          ? likes.filter((gmail) => gmail !== currentUser.gmail)
+          : [...likes, currentUser.gmail]
+      };
+    });
+
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
   };
 
-  const toggleFavorite = async (postId) => {
-    const target = gallery.find((item) => item.id === postId);
-    if (!target) return;
+  const toggleFavorite = (postId) => {
+    const next = gallery.map((item) => {
+      if (item.id !== postId) return item;
 
-    const favorites = target.favorites || [];
-    const alreadyFavorited = favorites.includes(currentUser.gmail);
+      const favorites = item.favorites || [];
+      const alreadyFavorited = favorites.includes(currentUser.gmail);
 
-    try {
-      if (alreadyFavorited) {
-        await unfavoriteGalleryPost(postId, currentUser.gmail);
-      } else {
-        await favoriteGalleryPost(postId, currentUser.gmail);
-      }
-    } catch (error) {
-      console.error("Toggle favorite failed.", error);
-      alert("收藏失敗，請稍後再試。");
-    }
+      return {
+        ...item,
+        favorites: alreadyFavorited
+          ? favorites.filter((gmail) => gmail !== currentUser.gmail)
+          : [...favorites, currentUser.gmail]
+      };
+    });
+
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
   };
 
   const deleteWallPost = async (postId) => {
-    try {
-      await deleteGalleryPost(postId);
-      if (openPostId === postId) setOpenPostId(null);
-    } catch (error) {
-      console.error("Delete cloud post failed.", error);
-      alert("刪除失敗，請稍後再試。");
+    const target = gallery.find((item) => item.id === postId);
+    if (target?.imageKey) {
+      await deleteImageFromDB(target.imageKey);
     }
+    const next = gallery.filter((item) => item.id !== postId);
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
+    if (openPostId === postId) setOpenPostId(null);
   };
 
-  const editWallPost = async (postId, newCaption) => {
-    try {
-      await updateGalleryPost(postId, newCaption);
-    } catch (error) {
-      console.error("Update cloud post failed.", error);
-      alert("編輯失敗，請稍後再試。");
-    }
+  const editWallPost = (postId, newCaption) => {
+    const next = gallery.map((item) => {
+      if (item.id !== postId) return item;
+      return { ...item, caption: newCaption };
+    });
+
+    setGallery(next);
+    saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
   };
 
-  const addWallComment = async (postId, text, parentCommentId = null) => {
+  const addWallComment = (postId, text, parentCommentId = null) => {
     const cleanText = String(text || "").trim();
     if (!cleanText) return;
 
-    const targetPost = gallery.find((item) => item.id === postId);
-    if (!targetPost) return;
-
-    const payload = {
+    const makeCommentPayload = () => ({
       id: makeId(),
       userId: currentUser.id || currentUser.gmail,
       gmail: currentUser.gmail,
@@ -2066,82 +2076,94 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       text: cleanText,
       createdAt: new Date().toLocaleString(),
       replies: []
+    });
+
+    const addReplyToCommentTree = (comments, parentId, replyPayload) => {
+      let found = false;
+      const nextComments = comments.map((comment) => {
+        if (String(comment.id) === String(parentId)) {
+          found = true;
+          return {
+            ...comment,
+            replies: [...(comment.replies || []), replyPayload].slice(-30)
+          };
+        }
+
+        if ((comment.replies || []).length > 0) {
+          const result = addReplyToCommentTree(comment.replies, parentId, replyPayload);
+          if (result.found) {
+            found = true;
+            return { ...comment, replies: result.comments };
+          }
+        }
+
+        return comment;
+      });
+
+      return { comments: nextComments, found };
     };
 
-    try {
-      if (!parentCommentId) {
-        await addGalleryComment(postId, payload);
-        return;
+    setGallery((prevGallery) => {
+      const normalizedGallery = normalizeWallGallery(prevGallery);
+      let didUpdate = false;
+
+      const next = normalizedGallery.map((item) => {
+        if (item.id !== postId) return item;
+
+        didUpdate = true;
+        const oldComments = (item.comments || []).map(normalizeWallComment);
+        const payload = makeCommentPayload();
+
+        if (parentCommentId) {
+          const result = addReplyToCommentTree(oldComments, parentCommentId, payload);
+          if (!result.found) {
+            alert("找不到要回覆的留言，請重新整理後再試一次。");
+            return item;
+          }
+          return { ...item, comments: result.comments };
+        }
+
+        return {
+          ...item,
+          comments: [payload, ...oldComments].slice(0, 30)
+        };
+      });
+
+      if (didUpdate) {
+        saveList(STORAGE_KEYS.gallery, stripImages(next), MAX_GALLERY);
       }
 
-      const addReplyToCommentTree = (comments, parentId, replyPayload) => {
-        let found = false;
-        const nextComments = comments.map((comment) => {
-          const normalized = normalizeWallComment(comment);
-          if (String(normalized.id) === String(parentId)) {
-            found = true;
-            return {
-              ...normalized,
-              replies: [...(normalized.replies || []), replyPayload].slice(-30)
-            };
-          }
-
-          if ((normalized.replies || []).length > 0) {
-            const result = addReplyToCommentTree(normalized.replies, parentId, replyPayload);
-            if (result.found) {
-              found = true;
-              return { ...normalized, replies: result.comments };
-            }
-          }
-
-          return normalized;
-        });
-
-        return { comments: nextComments, found };
-      };
-
-      const oldComments = (targetPost.comments || []).map(normalizeWallComment);
-      const result = addReplyToCommentTree(oldComments, parentCommentId, payload);
-      if (!result.found) {
-        alert("找不到要回覆的留言，請重新整理後再試一次。");
-        return;
-      }
-      await updateGalleryComments(postId, result.comments);
-    } catch (error) {
-      console.error("Add wall comment failed.", error);
-      alert("留言失敗，請稍後再試。");
-    }
+      return next;
+    });
   };
 
-  const addGeneralComment = async () => {
-    const cleanText = commentText.trim();
-    if (!cleanText) {
+  const addGeneralComment = () => {
+    if (!commentText.trim()) {
       alert("請先輸入留言內容！");
       return;
     }
 
-    try {
-      await addGeneralCommentToCloud({
-        userId: currentUser.id,
-        gmail: currentUser.gmail,
-        name: currentUser.nickname,
-        avatar: currentUser.avatar,
-        text: cleanText,
-      });
+    const item = {
+      id: makeId(),
+      userId: currentUser.id,
+      gmail: currentUser.gmail,
+      name: currentUser.nickname,
+      avatar: currentUser.avatar,
+      text: commentText,
+      createdAt: new Date().toLocaleString(),
+      replies: []
+    };
 
-      setCommentText("");
-    } catch (error) {
-      console.error("Add general comment failed.", error);
-      alert("留言失敗，請確認 Firebase Rules 或網路連線。");
-    }
+    const next = [item, ...comments];
+    setComments(next.slice(0, MAX_COMMENTS));
+    saveList(STORAGE_KEYS.comments, next, MAX_COMMENTS);
+
+    setCommentText("");
   };
 
-  const addGeneralReply = async (commentId, text) => {
+  const addGeneralReply = (commentId, text) => {
     const cleanText = String(text || "").trim();
     if (!cleanText) return;
-
-    const targetComment = comments.find((comment) => String(comment.id) === String(commentId));
-    if (!targetComment) return;
 
     const reply = {
       id: makeId(),
@@ -2154,39 +2176,31 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       replies: []
     };
 
-    try {
-      const normalized = normalizeWallComment(targetComment);
-      const nextReplies = [...(normalized.replies || []), reply].slice(-30);
-      await updateGeneralCommentReplies(commentId, nextReplies);
-      setGeneralReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
-      setGeneralReplyOpen((prev) => ({ ...prev, [commentId]: false }));
-    } catch (error) {
-      console.error("Add general reply failed.", error);
-      alert("回覆失敗，請稍後再試。");
-    }
+    const next = comments.map((comment) => {
+      const normalized = normalizeWallComment(comment);
+      if (String(normalized.id) !== String(commentId)) return normalized;
+      return {
+        ...normalized,
+        replies: [...(normalized.replies || []), reply].slice(-30)
+      };
+    });
+
+    setComments(next);
+    saveList(STORAGE_KEYS.comments, next, MAX_COMMENTS);
+    setGeneralReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
+    setGeneralReplyOpen((prev) => ({ ...prev, [commentId]: false }));
   };
 
   const clearWall = async () => {
-    if (!window.confirm("確定要清空所有 Community Wall 作品嗎？")) return;
-
-    try {
-      await clearGalleryCloud();
-      setOpenPostId(null);
-    } catch (error) {
-      console.error("Clear cloud wall failed.", error);
-      alert("清空失敗，請稍後再試。");
-    }
+    const current = getList(STORAGE_KEYS.gallery);
+    await Promise.all(current.map((item) => deleteImageFromDB(item.imageKey)));
+    localStorage.removeItem(STORAGE_KEYS.gallery);
+    setGallery([]);
   };
 
-  const clearComments = async () => {
-    if (!window.confirm("確定要清空所有留言嗎？")) return;
-
-    try {
-      await clearGeneralCommentsCloud();
-    } catch (error) {
-      console.error("Clear cloud comments failed.", error);
-      alert("清空留言失敗，請稍後再試。");
-    }
+  const clearComments = () => {
+    localStorage.removeItem(STORAGE_KEYS.comments);
+    setComments([]);
   };
 
   const filteredGallery = gallery.filter((item) => {
@@ -2228,7 +2242,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
             <option value="">Choose a work from My Storage</option>
             {savedWorks.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.type === "postcard" ? "Postcard" : item.type === "scrapbook" ? "Scrapbook" : "Photo Booth"} -{" "}
+                {item.type === "postcard" ? "Postcard" : item.type === "scrapbook" ? "Techo" : "Booth"} -{" "}
                 {item.title}
               </option>
             ))}
@@ -2464,7 +2478,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
         return (
           <div
             className="output-preview-overlay"
-            onClick={() => setOpenPostId(null)}
+            onClick={() => { setOpenPostId(null); setModalEditingPostId(null); }}
           >
             <div
               className="output-preview-modal"
@@ -2473,7 +2487,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
             >
               <div className="output-preview-header">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#f4e5d6", display: "grid", placeItems: "center", fontTop: "20px", overflow: "hidden" }}>
+                  <span className="redbook-avatar modal-round-avatar" style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#f4e5d6", display: "grid", placeItems: "center", fontSize: "20px", overflow: "hidden", flex: "0 0 38px" }}>
                   {post.avatar && (post.avatar.startsWith("data:image") || post.avatar.startsWith("blob:")) ? (
                     <img src={post.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
                   ) : (
@@ -2487,18 +2501,28 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 </div>
                 
                 {isOwner && (
-                  <button 
-                    className="modal-delete-post-btn"
-                    onClick={() => { if(confirm("確定要刪除這篇貼文嗎？")) deleteWallPost(post.id); }}
-                    style={{ marginLeft: "auto", marginRight: "12px" }}
-                  >
-                    🗑️ 刪除貼文
-                  </button>
+                  <div className="modal-owner-actions" style={{ marginLeft: "auto", marginRight: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <button
+                      className="modal-edit-post-btn"
+                      onClick={() => {
+                        setModalEditingPostId(post.id);
+                        setModalEditCaption(post.caption || "");
+                      }}
+                    >
+                      ✏️ Edit 編輯
+                    </button>
+                    <button
+                      className="modal-delete-post-btn"
+                      onClick={() => { if(confirm("確定要刪除這篇貼文嗎？")) deleteWallPost(post.id); }}
+                    >
+                      🗑️ Delete 刪除
+                    </button>
+                  </div>
                 )}
                 
                 <button
                   className="output-close-btn"
-                  onClick={() => setOpenPostId(null)}
+                  onClick={() => { setOpenPostId(null); setModalEditingPostId(null); }}
                 >
                   ×
                 </button>
@@ -2517,11 +2541,29 @@ function CommunityWallPage({ refreshKey, currentUser }) {
                 />
               </div>
 
-              <p style={{ margin: "0 0 14px 0", color: "#6b4a36", lineHeight: 1.6, fontSize: 16 }}>
-                {post.caption}
-              </p>
+              {modalEditingPostId === post.id ? (
+                <div className="modal-edit-post-box" style={{ margin: "0 0 14px 0", display: "grid", gap: "8px" }}>
+                  <textarea
+                    value={modalEditCaption}
+                    onChange={(e) => setModalEditCaption(e.target.value)}
+                    style={{ width: "100%", minHeight: 82, borderRadius: 14, border: "1px solid #e3c7ad", padding: "10px 12px", color: "#5b3924", background: "#fffaf5", resize: "vertical" }}
+                  />
+                  <div className="modal-action-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="modal-save-edit-btn" onClick={() => { if (!modalEditCaption.trim()) return; editWallPost(post.id, modalEditCaption.trim()); setModalEditingPostId(null); }}>
+                      Save 儲存
+                    </button>
+                    <button className="modal-cancel-edit-btn" onClick={() => setModalEditingPostId(null)}>
+                      Cancel 取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ margin: "0 0 14px 0", color: "#6b4a36", lineHeight: 1.6, fontSize: 16 }}>
+                  {post.caption}
+                </p>
+              )}
 
-              <div style={{ marginBottom: 18, display: "flex", gap: "8px" }}>
+              <div className="modal-action-row" style={{ marginBottom: 18, display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <button
                   className={`modal-like-btn ${liked ? "liked" : ""}`}
                   onClick={() => toggleLike(post.id)}
@@ -2831,35 +2873,23 @@ function App() {
   };
 
   const shareToWall = async (item) => {
-    try {
-      const imageSource = item.image || (await getImageFromDB(item.imageKey));
+    const current = getList(STORAGE_KEYS.gallery);
+    const id = makeId();
+    const imageKey = `wall_${id}`;
+    const imageSource = item.image || (await getImageFromDB(item.imageKey));
+    if (!imageSource) { alert("分享失敗：找不到作品圖片。"); return; }
+    await saveImageToDB(imageKey, imageSource);
 
-      if (!imageSource) {
-        alert("分享失敗：找不到作品圖片。");
-        return;
-      }
+    const wallItem = {
+      id, imageKey, userId: currentUser?.id, name: currentUser?.nickname || "Guest",
+      gmail: currentUser?.gmail || "", avatar: currentUser?.avatar,
+      caption: item.caption || (item.type === "postcard" ? `Shared Postcard: ${item.title}` : item.type === "scrapbook" ? `Shared Techo: ${item.title || "Techo"}` : `Shared Booth: ${item.title}`),
+      createdAt: new Date().toLocaleString(), likes: [], comments: [], favorites: []
+    };
 
-      await addGalleryPost({
-        image: imageSource,
-        userId: currentUser?.id,
-        name: currentUser?.nickname || "Guest",
-        gmail: currentUser?.gmail || "",
-        avatar: currentUser?.avatar || "🌷",
-        caption:
-          item.caption ||
-          (item.type === "postcard"
-            ? `Shared postcard: ${item.title}`
-            : item.type === "scrapbook"
-              ? `Shared scrapbook: ${item.title || "Scrapbook"}`
-              : `Shared photo strip: ${item.title}`),
-      });
-
-      setRefreshKey((prev) => prev + 1);
-      alert("已分享到 Community Wall！");
-    } catch (error) {
-      console.error("Share to cloud wall failed.", error);
-      alert("分享失敗：請確認 Firebase 設定、Firestore Rules 或圖片大小是否過大。");
-    }
+    const next = [wallItem, ...current];
+    const ok = saveList(STORAGE_KEYS.gallery, next, MAX_GALLERY);
+    if (ok) { setRefreshKey((prev) => prev + 1); alert("已分享到 Community Wall！"); }
   };
 
   const dispatchScrapbookAction = (actionName) => {
@@ -2899,15 +2929,15 @@ function App() {
     },
     photobooth: {
       title: "Booth",
-      text: "Choose upload or camera booth mode to create photo strips and save them to your storage."
+      text: "Choose upload or camera booth mode to create booth works and save them to your storage."
     },
     scrapbook: {
-      title: "Scrapbook",
+      title: "Techo",
       text: "Design a single-page planner with templates, stickers, tape, notes, photos, drawing tools, and shared works."
     },
     storage: {
       title: "My Storage",
-      text: "Review saved postcards and booth works, download them, delete them, or share them to the wall."
+      text: "Review saved Postcard, Booth, and Techo works, download them, delete them, or share them to the wall."
     },
     community: {
       title: "Community Wall",
@@ -2921,7 +2951,7 @@ function App() {
       <header className="global-header">
         <div>
           <h1>Life Tracker</h1>
-          <p>Postcard+Booth+Scrapbook&Share!</p>
+          <p>Postcard+Booth+Techo&Share!</p>
         </div>
         <div className="login-profile-box">
           {/* 加上 header-avatar-trigger 和 onClick 事件 */}
@@ -2948,7 +2978,7 @@ function App() {
         <div className="tab-switcher">
           <button className={activeTab === "postcard" ? "active" : ""} onClick={() => setActiveTab("postcard")}>Postcard</button>
           <button className={activeTab === "photobooth" ? "active" : ""} onClick={() => setActiveTab("photobooth")}>Booth</button>
-          <button className={activeTab === "scrapbook" ? "active" : ""} onClick={() => setActiveTab("scrapbook")}>Scrapbook</button>
+          <button className={activeTab === "scrapbook" ? "active" : ""} onClick={() => setActiveTab("scrapbook")}>Techo</button>
           <button className={activeTab === "storage" ? "active" : ""} onClick={() => setActiveTab("storage")}>My Storage</button>
           <button className={activeTab === "community" ? "active" : ""} onClick={() => setActiveTab("community")}>Community Wall</button>
         </div>
@@ -3020,7 +3050,7 @@ function App() {
             <UploadBooth onSaveArtwork={saveArtwork} />
           )}
 
-          {/* 子路由判斷 C：進入現場鏡頭拍貼機 */}
+          {/* 子路由判斷 C：進入現場鏡頭Booth */}
           {window.currentBoothMode === "camera" && (
             <CameraBooth onSaveArtwork={saveArtwork} />
           )}
@@ -3147,7 +3177,7 @@ const lifeTrackerPageStyles = `
   .intro-action-row .intro-store-btn { white-space: nowrap; }
   @media (max-width: 760px) { .intro-action-row { justify-content: flex-start; width: 100%; margin-left: 0; } }
 
-  /* Final requested intro fixes: actions only appear on Scrapbook, one row, distinct colors */
+  /* Final requested intro fixes: actions only appear on Techo, one row, distinct colors */
   .page-intro-card { justify-content: space-between; }
   .intro-action-row { display: flex !important; flex-wrap: nowrap !important; gap: 10px !important; justify-content: flex-end !important; align-items: center !important; margin-left: auto !important; }
   .intro-store-btn { min-width: 118px; min-height: 42px; padding: 10px 14px !important; font-size: .92rem !important; line-height: 1.1 !important; }
@@ -3722,5 +3752,257 @@ communityWallHardWrapFixStyle.textContent = `
       width: 100% !important;
     }
   }
+
+  /* Final modal preview polish */
+  .output-preview-modal .modal-action-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    align-items: center !important;
+    overflow: visible !important;
+  }
+  .output-preview-modal .modal-like-btn,
+  .output-preview-modal .modal-fav-btn,
+  .output-preview-modal .modal-delete-post-btn,
+  .output-preview-modal .wall-comment-box button,
+  .output-preview-modal .wall-reply-box button,
+  .output-preview-modal .reply-toggle-btn {
+    border: none !important;
+    border-radius: 999px !important;
+    padding: 10px 16px !important;
+    min-height: 40px !important;
+    font-weight: 900 !important;
+    color: #6b4228 !important;
+    background: linear-gradient(135deg, #fff5e9, #ffd8b5) !important;
+    box-shadow: 0 8px 18px rgba(123, 86, 56, 0.16) !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    cursor: pointer !important;
+  }
+  .output-preview-modal .modal-like-btn.liked,
+  .output-preview-modal .modal-fav-btn.favorited {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, #f08a9b, #d96c7e) !important;
+  }
+  .output-preview-modal .modal-delete-post-btn {
+    background: linear-gradient(135deg, #ffe7e7, #ffb6b6) !important;
+    color: #9f2d2d !important;
+  }
+  .output-close-btn {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    border-radius: 50% !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    border: none !important;
+    background: linear-gradient(135deg, #fff8ee, #f5d7b9) !important;
+    color: #7a4f35 !important;
+    font-size: 24px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    box-shadow: 0 8px 18px rgba(94, 60, 36, 0.18) !important;
+    cursor: pointer !important;
+    overflow: hidden !important;
+  }
+  .redbook-avatar,
+  .modal-round-avatar,
+  .output-preview-modal .redbook-avatar {
+    border-radius: 50% !important;
+    overflow: hidden !important;
+    aspect-ratio: 1 / 1 !important;
+    display: inline-grid !important;
+    place-items: center !important;
+  }
+  .redbook-avatar img,
+  .modal-round-avatar img,
+  .output-preview-modal .redbook-avatar img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 50% !important;
+    display: block !important;
+  }
+  .output-preview-modal .modal-edit-post-btn,
+  .output-preview-modal .modal-save-edit-btn,
+  .output-preview-modal .modal-cancel-edit-btn {
+    border: none !important;
+    border-radius: 999px !important;
+    padding: 10px 16px !important;
+    min-height: 40px !important;
+    font-weight: 900 !important;
+    color: #6b4228 !important;
+    background: linear-gradient(135deg, #fff7df, #ffd08a) !important;
+    box-shadow: 0 8px 18px rgba(123, 86, 56, 0.14) !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+  }
+  .output-preview-modal .modal-save-edit-btn {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, #9fbd73, #658d45) !important;
+  }
+  .output-preview-modal .modal-cancel-edit-btn {
+    background: linear-gradient(135deg, #f2e7da, #dbc2a9) !important;
+  }
+  .storage-clear-actions {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    margin: 12px 0 10px !important;
+  }
+  .storage-clear-actions button {
+    white-space: nowrap !important;
+    border-radius: 999px !important;
+    padding: 9px 14px !important;
+    font-weight: 850 !important;
+  }
+
 `;
 document.head.appendChild(communityWallHardWrapFixStyle);
+
+/* Final layout polish: aligned storage clear buttons, equal top navigation, and modal owner actions */
+const finalNavigationStorageModalFixStyle = document.createElement("style");
+finalNavigationStorageModalFixStyle.textContent = `
+  .global-header .tab-switcher {
+    width: min(1280px, calc(100vw - 40px)) !important;
+    max-width: 1280px !important;
+    margin: 18px auto 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    box-sizing: border-box !important;
+  }
+  .global-header .tab-switcher button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    text-align: center !important;
+    justify-content: center !important;
+  }
+
+  .page-title-row .storage-filter-stack {
+    width: min(100%, 760px) !important;
+    margin-left: auto !important;
+    display: grid !important;
+    gap: 10px !important;
+  }
+  .storage-filter-grid,
+  .storage-clear-grid {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    margin: 0 !important;
+  }
+  .storage-filter-grid button,
+  .storage-clear-grid button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 42px !important;
+    box-sizing: border-box !important;
+    padding: 9px 10px !important;
+    white-space: normal !important;
+    line-height: 1.15 !important;
+    overflow: visible !important;
+    text-align: center !important;
+  }
+  .storage-clear-grid button {
+    font-size: 0.84rem !important;
+  }
+  @media (max-width: 900px) {
+    .page-title-row .storage-filter-stack {
+      width: 100% !important;
+      margin-left: 0 !important;
+    }
+    .storage-filter-grid,
+    .storage-clear-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .global-header .tab-switcher {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      width: min(100% - 28px, 1280px) !important;
+    }
+  }
+
+  .output-preview-modal .modal-owner-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    width: min(260px, 46vw) !important;
+    flex: 0 0 min(260px, 46vw) !important;
+    align-items: stretch !important;
+  }
+  .output-preview-modal .modal-owner-actions .modal-edit-post-btn,
+  .output-preview-modal .modal-owner-actions .modal-delete-post-btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 9px 12px !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: clip !important;
+    line-height: 1.1 !important;
+    font-size: 0.88rem !important;
+  }
+  @media (max-width: 620px) {
+    .output-preview-modal .modal-owner-actions {
+      width: 100% !important;
+      flex-basis: 100% !important;
+      order: 3 !important;
+      margin: 8px 0 0 !important;
+    }
+  }
+`;
+document.head.appendChild(finalNavigationStorageModalFixStyle);
+
+/* Final naming + safe top navigation overflow fix */
+const lifeTrackerNameNavOverflowFixStyle = document.createElement("style");
+lifeTrackerNameNavOverflowFixStyle.textContent = `
+  .global-header {
+    box-sizing: border-box !important;
+    width: min(1280px, calc(100% - 32px)) !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    overflow: hidden !important;
+  }
+  .global-header .tab-switcher {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 16px 0 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  .global-header .tab-switcher button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 11px 6px !important;
+    font-size: clamp(0.72rem, 1.05vw, 0.95rem) !important;
+    line-height: 1.12 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: keep-all !important;
+    text-align: center !important;
+    justify-content: center !important;
+    min-height: 46px !important;
+  }
+  @media (max-width: 760px) {
+    .global-header { width: min(1280px, calc(100% - 20px)) !important; }
+    .global-header .tab-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  }
+`;
+document.head.appendChild(lifeTrackerNameNavOverflowFixStyle);

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-// 將網頁 HTML 轉成圖片的第三方套件(下載拍貼)：
+// 將網頁 HTML 轉成圖片的第三方套件(下載Booth)：
 import html2canvas from 'html2canvas';
 
 
@@ -245,7 +245,7 @@ const CameraBooth = ({ onSaveArtwork }) => {
     }
   };
 
-  // 新增：相機拍貼也可以存到 My Storage
+  // 新增：相機Booth也可以存到 My Storage
   const handleSaveToStorage = async () => {
     if (!onSaveArtwork) {
       alert("目前還沒有接到 My Storage 儲存功能，請確認 App.jsx 有傳入 onSaveArtwork。");
@@ -259,15 +259,15 @@ const CameraBooth = ({ onSaveArtwork }) => {
       const ok = await onSaveArtwork("photobooth", {
         id: makeLocalId(),
         type: "photobooth",
-        title: title || "Camera Photo Booth",
-        subtitle: subtitle || `Camera ${stripType}-Cut Photo Booth`,
+        title: title || "Camera Booth",
+        subtitle: subtitle || `Camera ${stripType}-Cut Booth`,
         createdAt: new Date().toLocaleString(),
         image: fullImageDataUrl
       });
 
-      if (ok) alert("相機拍貼已存到 My Storage！");
+      if (ok) alert("相機Booth已存到 My Storage！");
     } catch (error) {
-      console.error("相機拍貼儲存失敗:", error);
+      console.error("相機Booth儲存失敗:", error);
       alert("儲存失敗，請稍後再試。");
     }
   };
@@ -323,10 +323,10 @@ const CameraBooth = ({ onSaveArtwork }) => {
         </div>
 
 
-        {/* 3. 編輯拍貼框自訂面板 */}
+        {/* 3. 編輯Booth框自訂面板 */}
         <div style={{ background: '#f8f9fa', padding: '30px', borderRadius: '20px', border: '1px solid #eef0f2', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
           <h3 style={{ marginTop: 0, fontSize: '22px', color: '#6D4328', marginBottom: '25px', borderBottom: '2px solid #eceff1', paddingBottom: '10px' }}>
-            拍貼樣式自訂面板
+            Booth樣式自訂面板
           </h3>
          
           {/* 欄位 1：版型選擇 */}
@@ -345,7 +345,7 @@ const CameraBooth = ({ onSaveArtwork }) => {
 
           {/* 欄位 2：主標題 */}
           <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontWeight: 'bold', fontSize: '16px', color: '#6D4328' }}>拍貼主標題 (Stripe Title)</label>
+            <label style={{ fontWeight: 'bold', fontSize: '16px', color: '#6D4328' }}>Booth主標題 (Stripe Title)</label>
             <input
               type="text"
               value={title}
@@ -358,7 +358,7 @@ const CameraBooth = ({ onSaveArtwork }) => {
 
           {/* 欄位 3：副標題 */}
           <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontWeight: 'bold', fontSize: '16px', color: '#6D4328' }}>拍貼副標題 (Subtitle)</label>
+            <label style={{ fontWeight: 'bold', fontSize: '16px', color: '#6D4328' }}>Booth副標題 (Subtitle)</label>
             <input
               type="text"
               value={subtitle}
@@ -518,7 +518,7 @@ const CameraBooth = ({ onSaveArtwork }) => {
             boxShadow: '0 4px 10px rgba(109,67,40,0.3)'
           }}
         >
-           下載完整拍貼
+           下載完整Booth
         </button>
 
         <button
