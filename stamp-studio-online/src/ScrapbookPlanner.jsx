@@ -431,6 +431,379 @@ function brushPathStyle(item) {
   return base;
 }
 
+
+function roundRectPath(ctx, x, y, width, height, radius = 0) {
+  const r = Math.max(0, Math.min(Number(radius || 0), Math.abs(width) / 2, Math.abs(height) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function canvasStarPath(ctx, cx, cy, outer, inner, points = 5) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i += 1) {
+    const angle = -Math.PI / 2 + (i * Math.PI) / points;
+    const radius = i % 2 === 0 ? outer : inner;
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy + Math.sin(angle) * radius;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function canvasHeartPath(ctx, x, y, width, height) {
+  ctx.beginPath();
+  const top = y + height * 0.25;
+  ctx.moveTo(x + width / 2, y + height * 0.92);
+  ctx.bezierCurveTo(x + width * 0.05, y + height * 0.58, x + width * 0.02, top, x + width * 0.25, top);
+  ctx.bezierCurveTo(x + width * 0.38, top, x + width * 0.48, y + height * 0.36, x + width / 2, y + height * 0.47);
+  ctx.bezierCurveTo(x + width * 0.52, y + height * 0.36, x + width * 0.62, top, x + width * 0.75, top);
+  ctx.bezierCurveTo(x + width * 0.98, top, x + width * 0.95, y + height * 0.58, x + width / 2, y + height * 0.92);
+  ctx.closePath();
+}
+
+function wrapCanvasText(ctx, text, maxWidth) {
+  const source = String(text || "").split("\n");
+  const lines = [];
+  source.forEach((paragraph) => {
+    if (!paragraph) {
+      lines.push("");
+      return;
+    }
+    const words = paragraph.split(/(\s+)/).filter(Boolean);
+    let line = "";
+    words.forEach((word) => {
+      const test = line + word;
+      if (ctx.measureText(test).width > maxWidth && line.trim()) {
+        lines.push(line.trimEnd());
+        line = word.trimStart();
+      } else {
+        line = test;
+      }
+    });
+    lines.push(line.trimEnd());
+  });
+  return lines;
+}
+
+function drawCanvasTextBlock(ctx, text, x, y, width, height, options = {}) {
+  const fontSize = Number(options.fontSize || 16);
+  const fontFamily = options.fontFamily || "Trebuchet MS";
+  const fontWeight = options.fontWeight || (options.bold ? 700 : 400);
+  const lineHeight = fontSize * 1.22;
+  ctx.save();
+  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = options.align === "center" ? "center" : options.align === "right" ? "right" : "left";
+  const padding = Number(options.padding ?? 10);
+  const maxWidth = Math.max(1, width - padding * 2);
+  const lines = wrapCanvasText(ctx, text, maxWidth);
+  const startX = options.align === "center" ? x + width / 2 : options.align === "right" ? x + width - padding : x + padding;
+  let yy = y + padding;
+  const fillColor = options.color || "#4c3223";
+  const strokeEnabled = options.textStrokeEnabled;
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+  lines.forEach((line) => {
+    if (yy + lineHeight > y + height - 2) return;
+    if (strokeEnabled) {
+      ctx.strokeStyle = options.textStrokeColor || "#ffffff";
+      ctx.lineWidth = Math.max(1, Number(options.textStrokeWidth || 1)) * 2;
+      ctx.strokeText(line, startX, yy);
+    }
+    ctx.fillStyle = fillColor;
+    ctx.fillText(line, startX, yy);
+    yy += lineHeight;
+  });
+  ctx.restore();
+}
+
+function drawBorder(ctx, item, width, height, fallbackRadius = 12) {
+  if (!itemHasBorder(item)) return;
+  ctx.save();
+  ctx.strokeStyle = colorWithAlpha(item.borderColor || "#8a6b50", item.borderOpacity ?? 1, "#8a6b50");
+  ctx.lineWidth = Number(item.borderWidth || 1);
+  roundRectPath(ctx, ctx.lineWidth / 2, ctx.lineWidth / 2, width - ctx.lineWidth, height - ctx.lineWidth, Number(item.borderRadius ?? fallbackRadius));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function applyItemTransform(ctx, item) {
+  const x = Number(item.x || 0);
+  const y = Number(item.y || 0);
+  const w = Number(item.width || 1);
+  const h = Number(item.height || 1);
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.rotate((Number(item.rotation || 0) * Math.PI) / 180);
+  ctx.translate(-w / 2, -h / 2);
+  return { w, h };
+}
+
+function drawTapePattern(ctx, pattern, color, width, height) {
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  if (pattern === "dots" || pattern === "flower" || pattern === "heart" || pattern === "star") {
+    for (let yy = 10; yy < height; yy += 18) {
+      for (let xx = 10; xx < width; xx += 22) {
+        ctx.beginPath();
+        if (pattern === "heart") canvasHeartPath(ctx, xx - 5, yy - 5, 12, 12);
+        else if (pattern === "star") canvasStarPath(ctx, xx, yy, 7, 3, 5);
+        else if (pattern === "flower") {
+          for (let p = 0; p < 6; p += 1) {
+            ctx.moveTo(xx, yy);
+            ctx.arc(xx + Math.cos(p) * 4, yy + Math.sin(p) * 4, 4, 0, Math.PI * 2);
+          }
+        } else ctx.arc(xx, yy, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else if (pattern === "grid" || pattern === "checker") {
+    for (let xx = 0; xx < width; xx += 16) { ctx.beginPath(); ctx.moveTo(xx, 0); ctx.lineTo(xx, height); ctx.stroke(); }
+    for (let yy = 0; yy < height; yy += 16) { ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(width, yy); ctx.stroke(); }
+    if (pattern === "checker") {
+      for (let yy = 0; yy < height; yy += 16) for (let xx = 0; xx < width; xx += 16) if (((xx + yy) / 16) % 2 === 0) ctx.fillRect(xx, yy, 16, 16);
+    }
+  } else if (pattern === "diagonal" || pattern === "stripe") {
+    for (let xx = -height; xx < width; xx += 18) { ctx.beginPath(); ctx.moveTo(xx, height); ctx.lineTo(xx + height, 0); ctx.stroke(); }
+  } else if (pattern === "wave") {
+    for (let yy = 10; yy < height; yy += 18) {
+      ctx.beginPath();
+      for (let xx = 0; xx < width; xx += 8) {
+        const y = yy + Math.sin(xx / 12) * 5;
+        if (xx === 0) ctx.moveTo(xx, y); else ctx.lineTo(xx, y);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawNotePattern(ctx, item, width, height) {
+  const variant = item.variant || "blank";
+  ctx.save();
+  ctx.strokeStyle = "rgba(80,55,35,0.18)";
+  ctx.fillStyle = "rgba(80,55,35,0.22)";
+  if (variant === "lines" || variant === "todo") {
+    for (let y = 48; y < height - 12; y += 22) {
+      ctx.beginPath(); ctx.moveTo(14, y); ctx.lineTo(width - 14, y); ctx.stroke();
+    }
+  }
+  if (variant === "dots") {
+    for (let y = 24; y < height - 8; y += 18) for (let x = 18; x < width - 8; x += 18) { ctx.beginPath(); ctx.arc(x, y, 1.4, 0, Math.PI * 2); ctx.fill(); }
+  }
+  if (variant === "grid") {
+    for (let x = 18; x < width; x += 20) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+    for (let y = 18; y < height; y += 20) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+  }
+  if (variant === "todo") {
+    for (let y = 42; y < height - 12; y += 22) ctx.strokeRect(18, y - 8, 10, 10);
+  }
+  ctx.restore();
+}
+
+function drawImageFit(ctx, img, x, y, width, height, fit = "contain", cropX = 50, cropY = 50, cropZoom = 100, radius = 0) {
+  ctx.save();
+  roundRectPath(ctx, x, y, width, height, radius);
+  ctx.clip();
+  const zoom = Math.max(1, Number(cropZoom || 100) / 100);
+  const scale = (fit === "cover" ? Math.max(width / img.width, height / img.height) : Math.min(width / img.width, height / img.height)) * zoom;
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  const maxOffsetX = Math.max(0, drawW - width);
+  const maxOffsetY = Math.max(0, drawH - height);
+  const dx = x - maxOffsetX * (Number(cropX ?? 50) / 100);
+  const dy = y - maxOffsetY * (Number(cropY ?? 50) / 100);
+  ctx.drawImage(img, dx, dy, drawW, drawH);
+  ctx.restore();
+}
+
+async function drawScrapbookItemToCanvas(ctx, item, canvasW, canvasH, theme) {
+  ctx.save();
+  ctx.globalAlpha = item.opacity ?? 1;
+  const { w, h } = applyItemTransform(ctx, item);
+
+  if (item.type === "text") {
+    const radius = Number(item.borderRadius ?? 12);
+    if (item.bgColor && item.bgColor !== "transparent") {
+      ctx.fillStyle = colorWithAlpha(item.bgColor, item.bgOpacity ?? 1, "#ffffff");
+      roundRectPath(ctx, 0, 0, w, h, radius);
+      ctx.fill();
+    }
+    drawBorder(ctx, item, w, h, radius);
+    drawCanvasTextBlock(ctx, item.text, 0, 0, w, h, {
+      fontSize: item.fontSize,
+      fontFamily: item.fontFamily,
+      fontWeight: item.fontWeight || (item.bold ? 700 : 400),
+      color: colorWithAlpha(item.color, item.colorOpacity ?? 1, theme.text),
+      textStrokeEnabled: item.textStrokeEnabled,
+      textStrokeColor: colorWithAlpha(item.textStrokeColor, item.textStrokeOpacity ?? 1, "#ffffff"),
+      textStrokeWidth: item.textStrokeWidth,
+      padding: 10
+    });
+  }
+
+  if (item.type === "sticker") {
+    ctx.fillStyle = colorWithAlpha(item.color, item.colorOpacity ?? 1, theme.sticker);
+    ctx.strokeStyle = colorWithAlpha(item.borderColor || theme.accent, item.borderOpacity ?? 1, theme.accent);
+    ctx.lineWidth = itemHasBorder(item) ? Number(item.borderWidth || 1) : 0;
+    const shape = item.shape || "rounded";
+    if (shape === "circle") { ctx.beginPath(); ctx.arc(w / 2, h / 2, Math.min(w, h) / 2 - ctx.lineWidth / 2, 0, Math.PI * 2); }
+    else if (shape === "heart") canvasHeartPath(ctx, 0, 0, w, h);
+    else if (shape === "star") canvasStarPath(ctx, w / 2, h / 2, Math.min(w, h) * 0.48, Math.min(w, h) * 0.22, 5);
+    else if (shape === "label") { ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(w - 22, 0); ctx.lineTo(w, h / 2); ctx.lineTo(w - 22, h); ctx.lineTo(10, h); ctx.quadraticCurveTo(0, h, 0, h - 10); ctx.lineTo(0, 10); ctx.quadraticCurveTo(0, 0, 10, 0); ctx.closePath(); }
+    else roundRectPath(ctx, 0, 0, w, h, shape === "pill" ? Math.min(w, h) / 2 : Number(item.borderRadius ?? 18));
+    ctx.fill();
+    if (ctx.lineWidth > 0 && shape !== "heart" && shape !== "star") ctx.stroke();
+    const displayText = shape === "heart" ? "♥" : shape === "star" ? "★" : item.text;
+    drawCanvasTextBlock(ctx, displayText, 0, 0, w, h, {
+      fontSize: shape === "heart" || shape === "star" ? Math.min(w, h) * 0.72 : item.fontSize,
+      fontFamily: item.fontFamily,
+      fontWeight: 900,
+      color: shape === "heart" || shape === "star" ? colorWithAlpha(item.color, item.colorOpacity ?? 1, theme.sticker) : colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, theme.text),
+      align: "center",
+      padding: 8
+    });
+  }
+
+  if (item.type === "tape") {
+    const radius = Number(item.borderRadius ?? 4);
+    ctx.fillStyle = colorWithAlpha(item.color, item.colorOpacity ?? 1, theme.tape);
+    roundRectPath(ctx, 0, 0, w, h, radius);
+    ctx.fill();
+    drawTapePattern(ctx, item.pattern, item.color, w, h);
+    drawBorder(ctx, item, w, h, radius);
+    drawCanvasTextBlock(ctx, item.text, 0, 0, w, h, { fontSize: item.fontSize, fontFamily: item.fontFamily, fontWeight: 800, color: colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, "#ffffff"), align: "center", padding: 8 });
+  }
+
+  if (item.type === "note") {
+    const radius = Number(item.borderRadius ?? 18);
+    ctx.fillStyle = colorWithAlpha(item.color, item.colorOpacity ?? 1, theme.note);
+    if ((item.noteShape || "rounded") === "circle") { ctx.beginPath(); ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.fill(); }
+    else if (item.noteShape === "pill") { roundRectPath(ctx, 0, 0, w, h, Math.min(w, h) / 2); ctx.fill(); }
+    else if (item.noteShape === "ticket") { roundRectPath(ctx, 0, 0, w, h, radius); ctx.fill(); ctx.clearRect(-4, h / 2 - 12, 10, 24); ctx.clearRect(w - 6, h / 2 - 12, 10, 24); }
+    else { roundRectPath(ctx, 0, 0, w, h, item.noteShape === "square" ? 2 : radius); ctx.fill(); }
+    drawNotePattern(ctx, item, w, h);
+    drawBorder(ctx, item, w, h, radius);
+    if (item.title) drawCanvasTextBlock(ctx, item.title, 0, 0, w, 40, { fontSize: item.fontSize, fontFamily: item.fontFamily, fontWeight: 800, color: colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, theme.text), padding: 12 });
+    if (item.text) drawCanvasTextBlock(ctx, item.text, 0, item.title ? 34 : 0, w, h - (item.title ? 34 : 0), { fontSize: item.fontSize, fontFamily: item.fontFamily, color: colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, theme.text), padding: 12 });
+  }
+
+  if (item.type === "box") {
+    const radius = Number(item.borderRadius ?? 14);
+    ctx.fillStyle = colorWithAlpha(item.color, item.colorOpacity ?? 1, "#ffffff");
+    roundRectPath(ctx, 0, 0, w, h, radius);
+    ctx.fill();
+    drawBorder(ctx, item, w, h, radius);
+    drawCanvasTextBlock(ctx, item.text, 0, 0, w, h, { fontSize: item.fontSize, fontFamily: item.fontFamily, fontWeight: item.fontWeight || (item.bold ? 800 : 500), color: colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, theme.text), align: item.align, textStrokeEnabled: item.textStrokeEnabled, textStrokeColor: colorWithAlpha(item.textStrokeColor, item.textStrokeOpacity ?? 1, "#ffffff"), textStrokeWidth: item.textStrokeWidth, padding: 10 });
+  }
+
+  if (item.type === "polaroid") {
+    const radius = Number(item.borderRadius ?? 4);
+    ctx.fillStyle = item.frameColor === "transparent" ? "rgba(255,255,255,0)" : colorWithAlpha(item.frameColor, item.frameOpacity ?? 1, "#fffdf8");
+    roundRectPath(ctx, 0, 0, w, h, radius);
+    ctx.fill();
+    drawBorder(ctx, item, w, h, radius);
+    const pad = Math.max(10, Math.round(Math.min(w, h) * 0.055));
+    const captionH = Math.max(34, Math.round(h * 0.18));
+    const imgX = pad;
+    const imgY = pad;
+    const imgW = Math.max(1, w - pad * 2);
+    const imgH = Math.max(1, h - captionH - pad * 1.5);
+    if (item.image) {
+      try {
+        const img = await loadImageElement(item.image);
+        drawImageFit(ctx, img, imgX, imgY, imgW, imgH, item.fit || "cover", item.cropX, item.cropY, item.cropZoom, item.imageRounded ? Number(item.imageRadius ?? 10) : 0);
+      } catch { ctx.fillStyle = "#eee"; ctx.fillRect(imgX, imgY, imgW, imgH); }
+    } else {
+      ctx.fillStyle = "#f4ece2"; ctx.fillRect(imgX, imgY, imgW, imgH);
+    }
+    drawCanvasTextBlock(ctx, item.caption, 0, h - captionH, w, captionH, { fontSize: item.fontSize || 16, fontFamily: item.fontFamily, color: colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, theme.text), align: "center", padding: 8 });
+  }
+
+  if (item.type === "image") {
+    const radius = Number(item.borderRadius ?? 16);
+    ctx.fillStyle = item.frameColor === "transparent" ? "rgba(255,255,255,0)" : colorWithAlpha(item.frameColor, item.frameOpacity ?? 1, "#fffdf8");
+    roundRectPath(ctx, 0, 0, w, h, radius);
+    ctx.fill();
+    drawBorder(ctx, item, w, h, radius);
+    const pad = itemHasBorder(item) ? Math.max(2, Number(item.borderWidth || 1) + 3) : 0;
+    if (item.image) {
+      try {
+        const img = await loadImageElement(item.image);
+        drawImageFit(ctx, img, pad, pad, Math.max(1, w - pad * 2), Math.max(1, h - pad * 2), item.fit || "contain", item.cropX, item.cropY, item.cropZoom, item.imageRounded ? Number(item.imageRadius ?? 14) : 0);
+      } catch { ctx.fillStyle = "#eee"; ctx.fillRect(pad, pad, w - pad * 2, h - pad * 2); }
+    }
+  }
+
+  if (item.type === "drawing") {
+    const points = item.points || [];
+    if (points.length) {
+      const style = brushPathStyle(item);
+      ctx.save();
+      ctx.strokeStyle = style.stroke;
+      ctx.lineWidth = style.strokeWidth;
+      ctx.lineCap = style.strokeLinecap || "round";
+      ctx.lineJoin = style.strokeLinejoin || "round";
+      ctx.globalAlpha = (item.opacity ?? 1) * (style.opacity ?? 1);
+      if (style.strokeDasharray) ctx.setLineDash(String(style.strokeDasharray).split(/\s+/).map(Number));
+      if (item.brushTexture === "neon") { ctx.shadowColor = style.stroke; ctx.shadowBlur = 8; }
+      ctx.beginPath();
+      points.forEach((pt, idx) => { if (idx === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y); });
+      if (points.length === 1) ctx.lineTo(points[0].x + 0.1, points[0].y + 0.1);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+}
+
+async function renderScrapbookToCanvasDataUrl({ canvasSize, theme, styleName, templateType, uploadedTemplate, items, fixedTemplateItems = [], type = "image/png", quality = 0.95 }) {
+  const exportScale = 2.5;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(canvasSize.width * exportScale);
+  canvas.height = Math.round(canvasSize.height * exportScale);
+  const ctx = canvas.getContext("2d");
+  ctx.save();
+  ctx.scale(exportScale, exportScale);
+  ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
+  ctx.fillStyle = theme.paper || "#fffaf5";
+  ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
+
+  if (styleName === "minimal") {
+    ctx.strokeStyle = "rgba(0,0,0,0.035)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvasSize.width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvasSize.height); ctx.stroke(); }
+    for (let y = 0; y < canvasSize.height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvasSize.width, y); ctx.stroke(); }
+  }
+
+  if (templateType === "uploaded" && uploadedTemplate) {
+    try {
+      const img = await loadImageElement(uploadedTemplate);
+      drawImageFit(ctx, img, 0, 0, canvasSize.width, canvasSize.height, "contain", 50, 50, 100, 0);
+    } catch {}
+  }
+
+  const allItems = [...fixedTemplateItems, ...items]
+    .filter((item) => !item.exportOnlyHidden)
+    .sort((a, b) => Number(a.z || 1) - Number(b.z || 1));
+  for (const item of allItems) {
+    await drawScrapbookItemToCanvas(ctx, item, canvasSize.width, canvasSize.height, theme);
+  }
+  ctx.restore();
+  return canvas.toDataURL(type, quality);
+}
+
 function itemHasBorder(item) {
   return item.borderEnabled ?? Number(item.borderWidth || 0) > 0;
 }
@@ -495,7 +868,6 @@ function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, 
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onSelect(item.id);
       }}
       onDragStart={(e) => e.preventDefault()}
     >
@@ -521,10 +893,13 @@ function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, 
           className={`sp-sticker sp-sticker-${item.shape}`}
           style={{
             backgroundColor: colorWithAlpha(item.color, item.colorOpacity ?? 1, "#ffffff"),
-            color: colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, "#4c3223"),
+            color: item.shape === "heart" || item.shape === "star"
+              ? colorWithAlpha(item.color, item.colorOpacity ?? 1, "#ffffff")
+              : colorWithAlpha(item.textColor, item.textColorOpacity ?? 1, "#4c3223"),
             fontSize: item.fontSize,
             fontFamily: item.fontFamily,
-            ...itemBorderStyle(item, item.shape === "circle" ? 999 : item.shape === "pill" ? 999 : 18)
+            ...itemBorderStyle(item, 18),
+            borderRadius: item.shape === "circle" ? "50%" : item.shape === "pill" ? 999 : Number(item.borderRadius ?? 18)
           }}
         >
           {item.shape === "heart" ? "♥" : item.shape === "star" ? "★" : item.text}
@@ -557,8 +932,8 @@ function ScrapbookItem({ item, selected, onPointerDown, onResizeDown, onSelect, 
             ...itemBorderStyle(item, 18)
           }}
         >
-          <strong>{item.title}</strong>
-          <pre>{item.text}</pre>
+          {item.title ? <strong>{item.title}</strong> : null}
+          {item.text ? <pre>{item.text}</pre> : null}
         </div>
       )}
 
@@ -667,6 +1042,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
   const resizeRef = useRef(null);
   const cropDragRef = useRef(null);
   const drawRef = useRef(null);
+  const clickCycleRef = useRef({ x: null, y: null, ids: [], index: 0, time: 0 });
   const canvasSizeRef = useRef({ width: CANVAS_W, height: CANVAS_H });
 
   const today = new Date();
@@ -913,7 +1289,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
         ...item,
         type: item.type || type,
         sourceType: type,
-        title: item.title || (type === "postcard" ? "Untitled Postcard" : type === "photobooth" ? "Untitled Photo Booth" : "Untitled Scrapbook")
+        title: item.title || (type === "postcard" ? "Untitled Postcard" : type === "photobooth" ? "Untitled Booth" : "Untitled Techo")
       });
 
       const postcards = getList(STORAGE_KEYS.postcards).filter(belongsToMe).map(stampType("postcard"));
@@ -945,9 +1321,9 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
   const closeWorksPicker = () => setWorksOpen(false);
 
   const workTypeLabel = (type) => {
-    if (type === "postcard") return "Postcard｜明信片";
-    if (type === "photobooth") return "Booth｜拍貼";
-    if (type === "scrapbook") return "Scrapbook｜手帳";
+    if (type === "postcard") return "Postcard";
+    if (type === "photobooth") return "Booth";
+    if (type === "scrapbook") return "Techo";
     return "Work｜作品";
   };
 
@@ -995,23 +1371,59 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       startDrawing(e);
       return;
     }
+    clickCycleRef.current = { x: null, y: null, ids: [], index: 0, time: 0 };
     setSelectedId(null);
+  };
+
+  const getItemsAtPoint = (x, y) => {
+    return items
+      .filter((item) => item.type !== "drawing")
+      .filter((item) => x >= Number(item.x || 0) && x <= Number(item.x || 0) + Number(item.width || 0) && y >= Number(item.y || 0) && y <= Number(item.y || 0) + Number(item.height || 0))
+      .sort((a, b) => Number(b.z || 1) - Number(a.z || 1));
   };
 
   const selectAndDrag = (e, id) => {
     if (!canvasRef.current) return;
     e.preventDefault();
     e.stopPropagation();
-    setSelectedId(id);
-    pushHistorySnapshot();
-
-    const item = items.find((target) => target.id === id);
-    if (!item) return;
 
     const info = getCanvasInfo(e);
     if (!info) return;
+
+    const stacked = getItemsAtPoint(info.x, info.y);
+    const stackedIds = stacked.map((target) => target.id);
+    let targetId = id;
+
+    if (stackedIds.length > 0) {
+      const last = clickCycleRef.current || {};
+      const sameSpot =
+        Number.isFinite(last.x) &&
+        Number.isFinite(last.y) &&
+        Math.abs(last.x - info.x) <= 10 &&
+        Math.abs(last.y - info.y) <= 10;
+      const sameStack =
+        Array.isArray(last.ids) &&
+        last.ids.length === stackedIds.length &&
+        last.ids.every((value, index) => value === stackedIds[index]);
+
+      if (sameSpot && sameStack && stackedIds.length > 1) {
+        const nextIndex = ((last.index || 0) + 1) % stackedIds.length;
+        targetId = stackedIds[nextIndex];
+        clickCycleRef.current = { x: info.x, y: info.y, ids: stackedIds, index: nextIndex, time: Date.now() };
+      } else {
+        const clickedIndex = Math.max(0, stackedIds.indexOf(id));
+        targetId = stackedIds[clickedIndex] || stackedIds[0];
+        clickCycleRef.current = { x: info.x, y: info.y, ids: stackedIds, index: clickedIndex, time: Date.now() };
+      }
+    }
+
+    const item = items.find((target) => target.id === targetId);
+    if (!item) return;
+
+    setSelectedId(targetId);
+    pushHistorySnapshot();
     dragRef.current = {
-      id,
+      id: targetId,
       offsetX: info.x - item.x,
       offsetY: info.y - item.y
     };
@@ -1059,12 +1471,14 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
     };
   };
 
+  const getNextZ = (list = items) => Math.max(1, ...list.map((item) => Number(item.z || 1))) + 10;
+
   const addItem = (newItem) => {
     const item = {
       id: makeId(),
       x: 80 + (items.length % 5) * 24,
       y: 110 + (items.length % 5) * 24,
-      z: items.length + 3,
+      z: getNextZ(items),
       opacity: newItem.opacity ?? 1,
       rotation: newItem.rotation ?? 0,
       ...newItem
@@ -1145,10 +1559,10 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       type: "note",
       width: 230,
       height: 190,
-      variant: "lines",
+      variant: "blank",
       noteShape: "rounded",
-      title: "Memo",
-      text: "- To-do\n- Notes\n- Ideas",
+      title: "",
+      text: "",
       color: theme.note,
       colorOpacity: 1,
       textColor: theme.text,
@@ -1302,7 +1716,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
     ...patch
   });
 
-  const insertEditableMonthlyTemplate = () => {
+  const buildEditableMonthlyTemplateItems = () => {
     const w = canvasSize.width;
     const h = canvasSize.height;
     const margin = Math.max(18, Math.round(Math.min(w, h) * 0.045));
@@ -1371,10 +1785,14 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       }));
     });
 
-    replaceEditableTemplate(newItems, "monthly");
+    return newItems;
   };
 
-  const insertEditableWeeklyTemplate = () => {
+  const insertEditableMonthlyTemplate = () => {
+    replaceEditableTemplate(buildEditableMonthlyTemplateItems(), "monthly");
+  };
+
+  const buildEditableWeeklyTemplateItems = () => {
     const w = canvasSize.width;
     const h = canvasSize.height;
     const margin = Math.max(18, Math.round(Math.min(w, h) * 0.045));
@@ -1425,10 +1843,14 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
         borderRadius: styleName === "minimal" ? 6 : 18
       }));
     }
-    replaceEditableTemplate(newItems, "weekly");
+    return newItems;
   };
 
-  const insertEditableDailyTemplate = () => {
+  const insertEditableWeeklyTemplate = () => {
+    replaceEditableTemplate(buildEditableWeeklyTemplateItems(), "weekly");
+  };
+
+  const buildEditableDailyTemplateItems = () => {
     const w = canvasSize.width;
     const h = canvasSize.height;
     const margin = Math.max(18, Math.round(Math.min(w, h) * 0.045));
@@ -1460,7 +1882,11 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       makeTemplateBox({ x: margin + leftW + gap, y: belowY, z: 21, width: rightW, height: halfH, text: "To-do", color: theme.note, colorOpacity: 0.82, textColor: theme.text, fontSize: Math.max(11, Math.min(17, Math.round(w * 0.019))), bold: true, align: "left", borderRadius: styleName === "minimal" ? 6 : 18 }),
       makeTemplateBox({ x: margin + leftW + gap, y: belowY + halfH + gap, z: 22, width: rightW, height: halfH, text: "Notes / Mood", color: "#ffffff", colorOpacity: 0.76, textColor: theme.text, fontSize: Math.max(11, Math.min(17, Math.round(w * 0.019))), bold: true, align: "left", borderRadius: styleName === "minimal" ? 6 : 18 })
     ];
-    replaceEditableTemplate(newItems, "daily");
+    return newItems;
+  };
+
+  const insertEditableDailyTemplate = () => {
+    replaceEditableTemplate(buildEditableDailyTemplateItems(), "daily");
   };
 
   useEffect(() => {
@@ -1475,6 +1901,24 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
   const updateSelected = (patch) => {
     if (!selectedItem) return;
     commitItems((prev) => prev.map((item) => (item.id === selectedItem.id ? { ...item, ...patch } : item)));
+  };
+
+  const applyStickerShape = (shape) => {
+    if (!selectedItem || selectedItem.type !== "sticker") return;
+    const maxSide = Math.max(Number(selectedItem.width || 120), Number(selectedItem.height || 90));
+    if (shape === "circle") {
+      updateSelected({ shape, width: maxSide, height: maxSide, borderRadius: 999 });
+      return;
+    }
+    if (shape === "pill") {
+      updateSelected({ shape, width: Math.max(maxSide, 170), height: Math.max(58, Math.round(maxSide * 0.46)), borderRadius: 999 });
+      return;
+    }
+    if (shape === "heart" || shape === "star") {
+      updateSelected({ shape, width: maxSide, height: maxSide, borderRadius: 0, borderEnabled: false, borderWidth: 0, fontSize: Math.max(56, Math.round(maxSide * 0.62)) });
+      return;
+    }
+    updateSelected({ shape: "rounded", width: Math.max(130, Number(selectedItem.width || 120)), height: Math.max(82, Number(selectedItem.height || 90)), borderRadius: 18, borderEnabled: true, borderWidth: selectedItem.borderWidth || 2 });
   };
 
   const resetSelectedDefaults = () => {
@@ -1634,26 +2078,160 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
     }
   };
 
-
-
-  const captureCanvasImage = async (type = "image/png", quality = 0.95) => {
-    if (!canvasRef.current) return null;
-    setSelectedId(null);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const canvas = await html2canvas(canvasRef.current, {
-      scale: 2,
-      backgroundColor: theme.paper,
-      useCORS: true
-    });
-    return canvas.toDataURL(type, quality);
+  const buildFixedTemplateItemsForExport = () => {
+    if (templateType === "monthly") return buildEditableMonthlyTemplateItems();
+    if (templateType === "weekly") return buildEditableWeeklyTemplateItems();
+    if (templateType === "daily") return buildEditableDailyTemplateItems();
+    return [];
   };
 
-  const buildPdfBlobFromJpeg = (jpegDataUrl) => {
+  const prepareCanvasForExport = async () => {
+    const original = {
+      items,
+      templateType,
+      uploadedTemplate,
+      selectedId
+    };
+
+    const shouldMaterializeFixedTemplate =
+      fixedTemplateTypes.includes(templateType) &&
+      !items.some((item) => item.templateElement);
+
+    if (!shouldMaterializeFixedTemplate) {
+      setSelectedId(null);
+      await waitForPaint();
+      return async () => {
+        setSelectedId(original.selectedId);
+      };
+    }
+
+    const templateItems = buildFixedTemplateItemsForExport().map((item, index) => ({
+      ...item,
+      templateElement: true,
+      exportOnlyTemplate: true,
+      z: 10 + index
+    }));
+    const userItems = original.items
+      .filter((item) => !item.templateElement)
+      .map((item, index) => ({
+        ...item,
+        z: 10000 + index
+      }));
+
+    setSelectedId(null);
+    setUploadedTemplate(null);
+    setTemplateType("blank");
+    setItems([...templateItems, ...userItems]);
+    await waitForPaint();
+
+    return async () => {
+      setItems(original.items);
+      setTemplateType(original.templateType);
+      setUploadedTemplate(original.uploadedTemplate);
+      setSelectedId(original.selectedId);
+      await waitForPaint();
+    };
+  };
+
+  const waitForPaint = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  const waitForCanvasImages = async (node) => {
+    if (!node) return;
+    const images = Array.from(node.querySelectorAll("img"));
+    await Promise.all(
+      images.map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        if (typeof img.decode === "function") {
+          return img.decode().catch(() => undefined);
+        }
+        return new Promise((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        });
+      })
+    );
+  };
+
+  const captureCanvasImage = async (type = "image/png", quality = 0.95) => {
+    // Export the real visible techo page. This keeps fixed templates, editable templates,
+    // uploaded templates, hand drawing, crop positioning, and all user changes looking the
+    // same in Download / Storage / Community Wall.
+    const previousSelectedId = selectedId;
+    try {
+      if (!canvasRef.current) throw new Error("Techo canvas not found");
+      setSelectedId(null);
+      await waitForPaint();
+      await waitForCanvasImages(canvasRef.current);
+      await waitForPaint();
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      const outputScale = Math.max(2, Math.min(4, (window.devicePixelRatio || 1) * 2.5));
+      const renderedCanvas = await html2canvas(canvasRef.current, {
+        backgroundColor: null,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        scale: outputScale,
+        width: Math.ceil(rect.width),
+        height: Math.ceil(rect.height),
+        scrollX: -window.scrollX,
+        scrollY: -window.scrollY,
+        windowWidth: document.documentElement.scrollWidth,
+        windowHeight: document.documentElement.scrollHeight,
+        onclone: (doc) => {
+          const cloneCanvas = doc.querySelector(".sp-canvas");
+          if (!cloneCanvas) return;
+          cloneCanvas.querySelectorAll(".sp-resize-handle").forEach((node) => node.remove());
+          cloneCanvas.querySelectorAll(".sp-item").forEach((node) => {
+            node.classList.remove("sp-selected");
+          });
+        }
+      });
+
+      return renderedCanvas.toDataURL(type, quality);
+    } catch (error) {
+      console.error("DOM Techo export failed; trying canvas renderer fallback", error);
+      try {
+        const fixedTemplateItems =
+          fixedTemplateTypes.includes(templateType) && !items.some((item) => item.templateElement)
+            ? buildFixedTemplateItemsForExport()
+            : [];
+        return await renderScrapbookToCanvasDataUrl({
+          canvasSize,
+          theme,
+          styleName,
+          templateType,
+          uploadedTemplate,
+          items,
+          fixedTemplateItems,
+          type,
+          quality
+        });
+      } catch (fallbackError) {
+        console.error("Techo export fallback failed", fallbackError);
+        alert("輸出失敗，請確認圖片已載入後再試一次。\nExport failed. Please make sure all images are loaded and try again.");
+        return null;
+      }
+    } finally {
+      setSelectedId(previousSelectedId);
+      await waitForPaint();
+    }
+  };
+
+  const getDataUrlImageSize = (dataUrl) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+
+  const buildPdfBlobFromJpeg = async (jpegDataUrl) => {
     const base64 = jpegDataUrl.split(",")[1];
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
 
+    const imageSize = await getDataUrlImageSize(jpegDataUrl);
     const encoder = new TextEncoder();
     const parts = [];
     const offsets = [];
@@ -1673,9 +2251,11 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
     add("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
     obj(1, ["<< /Type /Catalog /Pages 2 0 R >>"]);
     obj(2, ["<< /Type /Pages /Kids [3 0 R] /Count 1 >>"]);
-    obj(3, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${canvasSize.width} ${canvasSize.height}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`]);
-    obj(4, [`<< /Type /XObject /Subtype /Image /Width ${canvasSize.width} /Height ${canvasSize.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`, bytes, "\nendstream"]);
-    const content = `q\n${CANVAS_W} 0 0 ${CANVAS_H} 0 0 cm\n/Im0 Do\nQ`;
+    const pageWidth = canvasSize.width;
+    const pageHeight = canvasSize.height;
+    obj(3, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`]);
+    obj(4, [`<< /Type /XObject /Subtype /Image /Width ${imageSize.width} /Height ${imageSize.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`, bytes, "\nendstream"]);
+    const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im0 Do\nQ`;
     obj(5, [`<< /Length ${content.length} >>\nstream\n${content}\nendstream`]);
     const xrefStart = position;
     add(`xref\n0 6\n0000000000 65535 f \n`);
@@ -1691,7 +2271,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       if (!dataUrl) return;
       const link = document.createElement("a");
       link.href = dataUrl;
-      link.download = `scrapbook-planner-${Date.now()}.png`;
+      link.download = `techo-${Date.now()}.png`;
       link.click();
     } catch (error) {
       console.error(error);
@@ -1706,11 +2286,11 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
     try {
       const jpeg = await captureCanvasImage("image/jpeg", 0.95);
       if (!jpeg) return;
-      const blob = buildPdfBlobFromJpeg(jpeg);
+      const blob = await buildPdfBlobFromJpeg(jpeg);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `scrapbook-planner-${Date.now()}.pdf`;
+      link.download = `techo-${Date.now()}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -1733,8 +2313,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       await onShareToWall({
         id: makeId(),
         type: "scrapbook",
-        title: "Scrapbook",
-        caption: "Shared scrapbook",
+        title: "Techo",
+        caption: "Shared techo",
         image: dataUrl
       });
     } catch (error) {
@@ -1758,11 +2338,20 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
       const item = {
         id: makeId(),
         type: "scrapbook",
-        title: `Scrapbook ${new Date().toLocaleDateString()}`,
+        title: `Techo ${new Date().toLocaleDateString()}`,
         subtitle: `${stylePresets[styleName]?.label || "Style"} · ${canvasPresets[canvasPreset]?.label || "Canvas"}`,
         createdAt: new Date().toLocaleString(),
         image: dataUrl,
-        data: { styleName, templateType, year, month, dateValue, canvasPreset, orientation, items }
+        data: {
+          styleName,
+          templateType,
+          year,
+          month,
+          dateValue,
+          canvasPreset,
+          orientation,
+          itemCount: items.length
+        }
       };
       const ok = await onSaveArtwork("scrapbook", item);
       if (ok) alert("Saved to My Storage! / 已存到 My Storage！");
@@ -1822,8 +2411,8 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
 
       <div className="sp-heading sp-heading-compact">
         <div>
-          <h2>Scrapbook</h2>
-          <p>Single-page creative planner. / 單頁手帳計畫本</p>
+          <h2>Techo</h2>
+          <p>Single-page creative planner. / 單頁 Techo 計畫本</p>
         </div>
       </div>
 
@@ -1901,13 +2490,13 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
                 <label className="sp-file-btn"><Bi en="To Polaroid" zh="加入拍立得" /><input type="file" accept="image/*" onChange={handlePolaroidUpload} /></label>
                 <label className="sp-file-btn"><Bi en="Photo Material" zh="照片素材" /><input type="file" accept="image/*" onChange={handleImageCardUpload} /></label>
                 <button className="sp-wide-btn" type="button" onClick={openWorksPicker}><Bi en="Import Works" zh="匯入作品" /></button>
-                <small className="sp-help">Pick postcards, booth strips, or scrapbook pages from My Storage.<br />可從 My Storage 選擇要導入的明信片、拍貼或手帳作品。</small>
+                <small className="sp-help">Pick postcards, booth strips, or techo pages from My Storage.<br />可從 My Storage 選擇要導入的Postcard、Booth或Techo作品。</small>
               </div>
             )}
 
             {activeToolPanel === "draw" && (
               <div className="sp-draw-tool sp-tool-section">
-                <button type="button" className={drawingMode ? "sp-draw-active" : "sp-wide-btn"} onClick={() => setDrawingMode((prev) => !prev)}>{drawingMode ? <Bi en="Drawing ON" zh="正在手繪" /> : <Bi en="Draw on Page" zh="在手帳上畫畫" />}</button>
+                <button type="button" className={drawingMode ? "sp-draw-active" : "sp-wide-btn"} onClick={() => setDrawingMode((prev) => !prev)}>{drawingMode ? <Bi en="Drawing ON" zh="正在手繪" /> : <Bi en="Draw on Page" zh="在 Techo 上畫畫" />}</button>
                 <ColorOpacityField label="Brush Color｜筆刷顏色" color={brushColor} alpha={brushOpacity} fallback={theme.accent} onColorChange={setBrushColor} onAlphaChange={setBrushOpacity} />
                 <div className={`sp-brush-preview sp-brush-preview-${brushTexture}`} style={{ "--brush-color": colorWithAlpha(brushColor, brushOpacity, theme.accent), "--brush-size": `${Math.max(2, Math.min(18, brushSize))}px` }}>
                   <span>Brush Preview｜筆刷預覽</span>
@@ -1924,7 +2513,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
           </div>
 
           <div className="sp-panel-fixed sp-panel-bottom sp-tool-bottom-actions">
-            <button className="sp-danger-btn" onClick={() => window.confirm("Clear this page? / 確定清空這張手帳嗎？") && commitItems([])}>
+            <button className="sp-danger-btn" onClick={() => window.confirm("Clear this page? / 確定清空這張 Techo 嗎？") && commitItems([])}>
               <Bi en="Clear Page" zh="清空頁面" />
             </button>
           </div>
@@ -2009,7 +2598,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
 
                 {activeSettingsPanel === "material" && (
                   <div className="sp-tool-section">
-                    {selectedItem.type === "sticker" && <><label><Bi en="Sticker Shape" zh="貼紙形狀" /></label><select value={selectedItem.shape} onChange={(e) => updateSelected({ shape: e.target.value })}><option value="circle">Circle</option><option value="rounded">Rounded</option><option value="pill">Label</option><option value="heart">Heart</option><option value="star">Star</option></select><ColorOpacityField label="Sticker Color｜貼紙顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.sticker} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
+                    {selectedItem.type === "sticker" && <><label><Bi en="Sticker Shape" zh="貼紙形狀" /></label><select value={selectedItem.shape || "rounded"} onChange={(e) => applyStickerShape(e.target.value)}><option value="circle">Circle</option><option value="rounded">Rounded</option><option value="pill">Label</option><option value="heart">Heart</option><option value="star">Star</option></select><ColorOpacityField label="Sticker Color｜貼紙顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.sticker} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
                     {selectedItem.type === "tape" && <><label><Bi en="Washi Pattern" zh="紙膠帶花紋" /></label><select value={selectedItem.pattern} onChange={(e) => updateSelected({ pattern: e.target.value })}><option value="solid">Solid</option><option value="dot">Dots</option><option value="grid">Grid</option><option value="stripe">Stripe</option><option value="checker">Checker</option><option value="diagonal">Diagonal</option><option value="wave">Wave</option><option value="flower">Flower</option><option value="heart">Heart</option><option value="star">Star</option></select><ColorOpacityField label="Tape Color｜紙膠帶顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.tape} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
                     {selectedItem.type === "note" && <><label><Bi en="Paper Style" zh="紙張樣式" /></label><select value={selectedItem.variant} onChange={(e) => updateSelected({ variant: e.target.value })}><option value="blank">Blank</option><option value="lined">Lines</option><option value="dots">Dots</option><option value="grid">Grid</option><option value="todo">To-do</option></select><label><Bi en="Note Shape" zh="便利貼形狀" /></label><select value={selectedItem.noteShape || "rounded"} onChange={(e) => updateSelected({ noteShape: e.target.value })}><option value="rounded">Rounded</option><option value="square">Square</option><option value="pill">Pill</option><option value="ticket">Ticket</option><option value="tag">Tag</option><option value="bubble">Bubble</option></select><ColorOpacityField label="Note Color｜便利貼顏色" color={selectedItem.color} alpha={selectedItem.colorOpacity ?? 1} fallback={theme.note} onColorChange={(value) => updateSelected({ color: value })} onAlphaChange={(value) => updateSelected({ colorOpacity: value })} /></>}
                     {(selectedItem.type === "polaroid" || selectedItem.type === "image") && <><label className="sp-file-btn"><Bi en="Upload / Replace" zh="上傳替換" /><input type="file" accept="image/*" onChange={handleSelectedImageUpload} /></label><ColorOpacityField label="Frame Color｜相框顏色" color={selectedItem.frameColor} alpha={selectedItem.frameOpacity ?? 1} fallback="#fffdf8" onColorChange={(value) => updateSelected({ frameColor: value })} onAlphaChange={(value) => updateSelected({ frameOpacity: value })} /><label className="sp-check-row"><input type="checkbox" checked={selectedItem.frameColor === "transparent"} onChange={(e) => updateSelected({ frameColor: e.target.checked ? "transparent" : "#fffdf8" })} /> <Bi en="Transparent Frame" zh="透明框" /></label></>}
@@ -2042,7 +2631,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
             <div className="sp-work-modal-head">
               <div>
                 <h3>Import from My Storage</h3>
-                <p>從 My Storage 選擇想放進手帳的素材</p>
+                <p>從 My Storage 選擇想放進 Techo的素材</p>
               </div>
               <button type="button" className="sp-modal-close" onClick={closeWorksPicker}>×</button>
             </div>
@@ -2050,9 +2639,9 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
             <div className="sp-work-filter-row">
               {[
                 ["all", "All", "全部"],
-                ["postcard", "Postcard", "明信片"],
-                ["photobooth", "Booth", "拍貼"],
-                ["scrapbook", "Scrapbook", "手帳"]
+                ["postcard", "Postcard", "Postcard"],
+                ["photobooth", "Booth", "Booth"],
+                ["scrapbook", "Techo", "Techo"]
               ].map(([key, en, zh]) => (
                 <button key={key} type="button" className={worksFilter === key ? "active" : ""} onClick={() => setWorksFilter(key)}>
                   <Bi en={en} zh={zh} />
@@ -2063,7 +2652,7 @@ export default function ScrapbookPlanner({ currentUser, onShareToWall, onSaveArt
             {filteredSavedWorks.length === 0 ? (
               <div className="sp-work-empty">
                 <strong>No saved works found.</strong>
-                <span>目前沒有可匯入的作品，請先到 Postcard / Booth / Scrapbook 儲存作品到 My Storage。</span>
+                <span>目前沒有可匯入的作品，請先到 Postcard / Booth / Techo 儲存作品到 My Storage。</span>
               </div>
             ) : (
               <div className="sp-work-picker-grid">
@@ -3583,4 +4172,29 @@ html, body {
 .sp-uploaded-template { pointer-events: none !important; }
 .sp-template { pointer-events: none !important; }
 .sp-template-actions button, .sp-file-btn, .sp-wide-btn { box-sizing: border-box !important; }
+
+/* Integrity fixes: export safety, sticker shapes, and easier selection */
+.sp-export-mode .sp-selected { outline: none !important; }
+.sp-export-mode .sp-resize-handle { display: none !important; }
+.sp-sticker-heart, .sp-sticker-star { border-radius: 0 !important; }
+.sp-sticker-circle { border-radius: 50% !important; }
+.sp-sticker-pill { border-radius: 999px !important; }
+
+/* Final export / selection / note fixes */
+.sp-item { pointer-events: auto !important; }
+.sp-sticker-heart, .sp-sticker-star { font-size: clamp(48px, 70%, 160px) !important; }
+.sp-note strong:empty, .sp-note pre:empty { display: none !important; }
+
+/* Exact DOM export final fixes */
+.sp-export-mode .sp-selected,
+.sp-export-mode .sp-item,
+.sp-export-mode .sp-crop-active {
+  outline: none !important;
+}
+.sp-export-mode .sp-resize-handle {
+  display: none !important;
+}
+.sp-export-mode * {
+  caret-color: transparent !important;
+}
 `;
