@@ -17,7 +17,7 @@ import {
   listenGeneralComments,
   addGeneralCommentToCloud,
   clearGalleryCloud,
-  clearGeneralCommentsCloud
+  clearGeneralCommentsCloud,
 } from "./sharedStore.js";
 import "./App.css";
 
@@ -1743,10 +1743,8 @@ function CommunityWallPage({ refreshKey, currentUser }) {
   const [wallFilter, setWallFilter] = useState("all");
 
   const loadWall = async () => {
-    // My Storage 仍保留原本的本機儲存邏輯，因為這是個人作品區。
-    // Community Wall / Live Comment Board 只交給 Firebase 即時同步，
-    // 不再讀 localStorage，避免本機舊資料和線上資料不同步。
-
+    // My Storage 保留本機儲存，因為這是個人作品區。
+    // Community Wall / Live Comment Board 改由 Firebase 即時同步，不再讀 localStorage 的舊 gallery/comments。
     const myPostcards = getList(STORAGE_KEYS.postcards).filter(
       (item) => !item.ownerGmail || item.ownerGmail === currentUser.gmail
     );
@@ -1769,16 +1767,18 @@ function CommunityWallPage({ refreshKey, currentUser }) {
       if (cancelled) return;
 
       unsubscribeGallery = listenGallery((cloudGallery) => {
-        setGallery(normalizeWallGallery(cloudGallery));
+        console.log("Firebase gallery loaded:", cloudGallery);
+        setGallery(cloudGallery);
       });
 
       unsubscribeComments = listenGeneralComments((cloudComments) => {
-        setComments(cloudComments.map(normalizeWallComment));
+        console.log("Firebase comments loaded:", cloudComments);
+        setComments(cloudComments);
       });
     };
 
     initWall().catch((error) => {
-      console.error("Cloud wall listener failed. Keep using local fallback.", error);
+      console.error("Cloud wall listener failed.", error);
     });
 
     return () => {
@@ -1842,8 +1842,8 @@ function CommunityWallPage({ refreshKey, currentUser }) {
         userId: currentUser.id,
         name: currentUser.nickname,
         gmail: currentUser.gmail,
-        avatar: currentUser.avatar,
-        caption: caption || "Shared a new work."
+        avatar: currentUser.avatar || "🌷",
+        caption: caption || "Shared a new work.",
       });
 
       setWallCaption("");
@@ -1922,8 +1922,8 @@ function CommunityWallPage({ refreshKey, currentUser }) {
         userId: currentUser.id,
         gmail: currentUser.gmail,
         name: currentUser.nickname,
-        avatar: currentUser.avatar,
-        text
+        avatar: currentUser.avatar || "🌷",
+        text,
       });
     } catch (error) {
       console.error("Add wall comment failed.", error);
@@ -1931,7 +1931,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
     }
   };
 
-  const addGeneralComment = async () => {
+    const addGeneralComment = async () => {
     if (!commentText.trim()) {
       alert("請先輸入留言內容！");
       return;
@@ -1943,7 +1943,7 @@ function CommunityWallPage({ refreshKey, currentUser }) {
         gmail: currentUser.gmail,
         name: currentUser.nickname,
         avatar: currentUser.avatar || "🌷",
-        text: commentText
+        text: commentText,
       });
 
       setCommentText("");
@@ -2523,6 +2523,7 @@ function App() {
   const shareToWall = async (item) => {
     try {
       const imageSource = item.image || (await getImageFromDB(item.imageKey));
+
       if (!imageSource) {
         alert("分享失敗：找不到作品圖片。");
         return;
@@ -2533,10 +2534,15 @@ function App() {
         userId: currentUser?.id,
         name: currentUser?.nickname || "Guest",
         gmail: currentUser?.gmail || "",
-        avatar: currentUser?.avatar,
-        caption: item.caption || (item.type === "postcard" ? `Shared postcard: ${item.title}` : `Shared photo strip: ${item.title}`)
+        avatar: currentUser?.avatar || "🌷",
+        caption:
+          item.caption ||
+          (item.type === "postcard"
+            ? `Shared postcard: ${item.title}`
+            : `Shared photo strip: ${item.title}`),
       });
 
+      setRefreshKey((prev) => prev + 1);
       alert("已分享到 Community Wall！");
     } catch (error) {
       console.error("Share to cloud wall failed.", error);
