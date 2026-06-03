@@ -32,7 +32,6 @@ firebase deploy --only hosting
 🌐 Public Website-公開網址
 
 https://web13-practice.web.app
----
 
 ## 專案執行方式
 
