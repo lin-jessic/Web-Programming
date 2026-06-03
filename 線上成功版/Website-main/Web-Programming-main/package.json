@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@vitejs/plugin-react": "latest",
+    "html2canvas": "^1.4.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "three": "^0.184.0",
+    "vite": "latest",
+    "firebase": "^12.14.0"
+  }
+}
